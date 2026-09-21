@@ -1,0 +1,7 @@
+@page "/docs/windsurf"
+@layout PublicDocsLayout
+<PageTitle>Windsurf · ARKANA GATEWAY</PageTitle>
+<header class="docs-page-header"><div><span class="docs-kicker">Status Client · Windsurf</span><h1>Windsurf</h1><p>Windsurf adalah AI IDE dengan konfigurasi model dan BYOK yang bergantung pada versi, account plan, dan surface Provider yang tersedia.</p></div><span class="docs-agent-mark"><Heroicon Name="sparkles" Size="28" /></span></header>
+<section class="docs-prose-section"><h2>Status integrasi</h2><p><span class="badge">Not direct</span> Direct setup Windsurf ke ARKANA GATEWAY belum ditandai verified. Jangan menganggap custom OpenAI-compatible Base URL tersedia pada semua versi atau plan.</p></section>
+<section class="docs-prose-section"><h2>Jika custom Endpoint tersedia</h2><ol class="docs-list"><li>Buka pengaturan Models, Provider, atau BYOK.</li><li>Pastikan ada field custom Base URL/OpenAI-compatible.</li><li>Gunakan <code>https://gateway.arkana.dev/v1</code>.</li><li>Gunakan model ID dari <code>/v1/models</code>.</li><li>Simpan key melalui Secret field.</li><li>Uji text, Tool event, artifact, dan Gateway Logs.</li></ol></section>
+<section class="docs-prose-section"><h2>Alternatif</h2><p>Jika Windsurf tidak menyediakan custom OpenAI-compatible Endpoint, gunakan Agent terpisah yang berjalan pada Windsurf, seperti Roo Code atau Cline, lalu ikuti halaman Provider Agent tersebut.</p></section>

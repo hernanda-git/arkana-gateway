@@ -1,0 +1,918 @@
+@page "/"
+@attribute [Route("/dashboard")]
+@implements IDisposable
+@rendermode InteractiveServer
+@using System.Text.Json
+@using System.Threading
+@using Arkana.Gateway.Api.Services
+
+@inject UserTimeService UserTime
+@inject ILogger<Dashboard> Logger
+
+<PageTitle>Dashboard</PageTitle>
+
+@* ── Overview Stats ────────────────────────────────────── *@
+<div class="section-header"><h2>Overview</h2></div>
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-card-header">
+            <div class="label">API Keys</div>
+            <Heroicon Name="key" Size="18" Class="label-icon" />
+        </div>
+        <div class="value">@(stats?.ActiveApiKeys ?? 0)</div>
+        <div class="sub">@(stats?.TotalApiKeys ?? 0) total</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-card-header">
+            <div class="label">Active Streams</div>
+            <Heroicon Name="wifi" Size="18" Class="label-icon" />
+        </div>
+        <div class="value">@(stats?.ActiveStreams ?? 0)</div>
+        <div class="sub">SSE connections</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-card-header">
+            <div class="label">Active Providers</div>
+            <Heroicon Name="server" Size="18" Class="label-icon" />
+        </div>
+        <div class="value">@(stats?.ActiveProviders ?? 0)</div>
+        <div class="sub">@(stats?.TotalProviders ?? 0) total</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-card-header">
+            <div class="label">Active Workflows</div>
+            <Heroicon Name="arrows-right-left" Size="18" Class="label-icon" />
+        </div>
+        <div class="value">@(stats?.ActiveWorkflows ?? 0)</div>
+        <div class="sub">@(stats?.TotalWorkflows ?? 0) total</div>
+    </div>
+</div>
+
+@* ── Provider Health ────────────────────────────────── *@
+<div class="ph-wrap">
+    <div class="ph-top">
+        <span class="ph-title">Provider health</span>
+        <span class="ph-sub">All time</span>
+    </div>
+    <div class="ph-grid">
+        @if (providerHealth is not null)
+        {
+            @foreach (var p in providerHealth)
+            {
+                var isDisabled = !p.IsEnabled;
+                var hasData = p.HasRecentActivity && p.IsEnabled;
+                var statusClass = isDisabled ? "ph-card-disabled" : "";
+                
+                var dotClass = p.Status switch
+                {
+                    "healthy" => "dot-green",
+                    "degraded" => "dot-warn",
+                    "down" => "dot-red",
+                    "inactive" => "dot-off",
+                    _ => "dot-none"
+                };
+
+                <div class="ph-card @statusClass">
+                    <div class="ph-card-header">
+                        <div class="ph-card-left">
+                            <span class="ph-dot @dotClass"></span>
+                            <span class="ph-name">@p.Name</span>
+                        </div>
+                        @if (isDisabled)
+                        {
+                            <span class="ph-badge-disabled">Disabled</span>
+                        }
+                        else if (hasData && p.Errors > 0)
+                        {
+                            <span class="ph-badge-err">@p.Errors error@(p.Errors > 1 ? "s" : "")</span>
+                        }
+                    </div>
+                    @if (isDisabled)
+                    {
+                        @* Empty body for disabled cards *@
+                    }
+                    else if (!hasData)
+                    {
+                        <span class="ph-nodata">No data available</span>
+                    }
+                    else
+                    {
+                        <div class="ph-stats-row">
+                            <div class="ph-stat">
+                                <span class="ph-stat-val">@p.SuccessRate.ToString("F0")<span class="ph-stat-unit">%</span></span>
+                                <span class="ph-stat-label">Success</span>
+                            </div>
+                            <div class="ph-stat">
+                                <span class="ph-stat-val">@p.AvgDurationMs.ToString("F0")<span class="ph-stat-unit">ms</span></span>
+                                <span class="ph-stat-label">Latency</span>
+                            </div>
+                            <div class="ph-stat">
+                                <span class="ph-stat-val">@p.RecentRequests</span>
+                                <span class="ph-stat-label">Requests</span>
+                            </div>
+                        </div>
+                    }
+                    @if (!isDisabled)
+                    {
+                        <div class="ph-footer">
+                            <span class="ph-time">Last request: @(p.LastSeen.HasValue ? UserTime.FormatShort(p.LastSeen.Value) : "Never")</span>
+                        </div>
+                    }
+                </div>
+            }
+        }
+        else
+        {
+            <div class="empty-state" style="min-width:200px;padding:16px"><p>Loading...</p></div>
+        }
+    </div>
+</div>
+
+@* ── Usage Section ────────────────────────────────────── *@
+<div class="section-header section-header-usage" style="margin-top:24px">
+    <h2>Usage</h2>
+    @if (selectedRange != DashboardService.TimeRange.All)
+    {
+        var canGoForward = Svc.NavigationDate is null || Svc.NavigationDate.Value.Date >= UserTime.ToLocal(DateTimeOffset.UtcNow).Date;
+        <div class="usage-nav-bar">
+            <button class="cost-nav-btn" @onclick="PrevPeriod" title="Previous period">
+                <Heroicon Name="chevron-left" Size="16" />
+            </button>
+            <span class="cost-month-label">@Svc.GetNavigationLabel(selectedRange)</span>
+            <button class="cost-nav-btn" @onclick="NextPeriod" title="Next period" disabled="@canGoForward" style="@(canGoForward ? "opacity:0.3;cursor:default" : "")">
+                <Heroicon Name="chevron-right" Size="16" />
+            </button>
+        </div>
+    }
+    <div class="usage-filter-group">
+        <div class="time-range-picker">
+            <button class="pill @(selectedRange == DashboardService.TimeRange.Daily ? "pill-active" : "")" @onclick="() => SetRange(DashboardService.TimeRange.Daily)">Daily</button>
+            <button class="pill @(selectedRange == DashboardService.TimeRange.Weekly ? "pill-active" : "")" @onclick="() => SetRange(DashboardService.TimeRange.Weekly)">Weekly</button>
+            <button class="pill @(selectedRange == DashboardService.TimeRange.Monthly ? "pill-active" : "")" @onclick="() => SetRange(DashboardService.TimeRange.Monthly)">Monthly</button>
+            <button class="pill @(selectedRange == DashboardService.TimeRange.Yearly ? "pill-active" : "")" @onclick="() => SetRange(DashboardService.TimeRange.Yearly)">Yearly</button>
+            <button class="pill @(selectedRange == DashboardService.TimeRange.All ? "pill-active" : "")" @onclick="() => SetRange(DashboardService.TimeRange.All)">All Time</button>
+        </div>
+        <select class="filter-select" @bind="_providerFilter" @bind:after="OnFilterChanged">
+            <option value="*">All Providers</option>
+            @if (_providerNames is not null)
+            {
+                @foreach (var p in _providerNames)
+                {
+                    <option value="@p">@p</option>
+                }
+            }
+        </select>
+        <select class="filter-select" @bind="_apiKeyFilter" @bind:after="OnFilterChanged">
+            <option value="*">All Keys</option>
+            @if (_apiKeyNames is not null)
+            {
+                @foreach (var k in _apiKeyNames)
+                {
+                    <option value="@k">@k</option>
+                }
+            }
+        </select>
+    </div>
+</div>
+
+@* ── Usage: stats + chart ─────────────────────────────── *@
+<div class="usage-split">
+    <div class="usage-stats-col">
+        <div class="stat-card">
+            <div class="stat-card-header">
+                <div class="label">Requests</div>
+                <Heroicon Name="arrows-right-left" Size="18" Class="label-icon" />
+            </div>
+            <div class="value">@(usage?.Requests ?? 0)</div>
+            <div class="sub">@rangeLabel</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card-header">
+                <div class="label">Input Tokens</div>
+                <Heroicon Name="bars-3" Size="18" Class="label-icon" />
+            </div>
+            <div class="value">@FormatNumber(usage?.InputTokens ?? 0)</div>
+            <div class="sub">@rangeLabel</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card-header">
+                <div class="label">Output Tokens</div>
+                <Heroicon Name="bars-3" Size="18" Class="label-icon" />
+            </div>
+            <div class="value">@FormatNumber(usage?.OutputTokens ?? 0)</div>
+            <div class="sub">@rangeLabel</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card-header">
+                <div class="label">Total Tokens</div>
+                <Heroicon Name="document-text" Size="18" Class="label-icon" />
+            </div>
+            <div class="value">@FormatNumber(usage?.TotalTokens ?? 0)</div>
+            <div class="sub">@rangeLabel</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card-header">
+                <div class="label">Cost</div>
+                <Heroicon Name="banknotes" Size="18" Class="label-icon" />
+            </div>
+            <div class="value" style="font-size:20px">$@((usage?.Cost ?? 0).ToString("F6"))</div>
+            <div class="sub">@rangeLabel</div>
+        </div>
+    </div>
+
+    <div class="usage-chart-col">
+        <div class="cost-chart-wrap" style="margin-bottom:0">
+            @if (chartData is not null && chartData.PeriodLabels.Count > 0)
+            {
+                <div class="cost-chart">
+                    @* Y-axis *@
+                    <div class="cost-y-axis">
+                        @{
+                            var ySteps = 5;
+                            var rawMax = chartData.MaxCost * 1.2m;
+                            decimal yMax;
+                            if (rawMax >= 1m)
+                                yMax = Math.Ceiling(rawMax);
+                            else if (rawMax >= 0.001m)
+                            {
+                                var digits = (int)Math.Ceiling(-Math.Log10((double)rawMax));
+                                var factor = (decimal)Math.Pow(10, digits);
+                                yMax = Math.Ceiling(rawMax * factor) / factor;
+                            }
+                            else
+                                yMax = 0.001m;
+                        }
+                        @for (var i = ySteps; i >= 0; i--)
+                        {
+                            var val = yMax * i / ySteps;
+                            <div class="cost-y-label">$@val.ToString(val < 0.001m ? "F6" : val < 1m ? "F4" : "F2")</div>
+                        }
+                    </div>
+
+                    @* Bars *@
+                    <div class="cost-bars-container">
+                        <div class="cost-gridlines">
+                            @for (var i = ySteps; i >= 0; i--)
+                            {
+                                <div class="cost-gridline"></div>
+                            }
+                        </div>
+
+                        @foreach (var label in chartData.PeriodLabels)
+                        {
+                            var periodPoints = chartData.Points.Where(p => p.PeriodLabel == label).ToList();
+                            var totalCost = periodPoints.Sum(p => p.Cost);
+                            <div class="cost-bar-col" title="@FormatCostTitle(label, totalCost)">
+                                @foreach (var point in periodPoints.OrderBy(p => p.ModelCode))
+                                {
+                                    var pct = chartData.MaxCost > 0
+                                        ? (double)(point.Cost / yMax) * 100
+                                        : 0;
+                                    var color = chartData.ModelColors.TryGetValue(point.ModelCode, out var c) ? c : "#a3a3a3";
+                                    <div class="cost-bar"
+                                         style="height:@Math.Max(pct, 0.5)%;background:@color"
+                                         title="@FormatCostTitle(point.ModelName, point.Cost)">
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                @* X-axis *@
+                <div class="cost-x-axis">
+                    <div class="cost-x-spacer"></div>
+                    @{
+                        var skip = Math.Max(1, chartData.PeriodLabels.Count / 15);
+                    }
+                    @foreach (var label in chartData.PeriodLabels.Select((l, i) => (l, i)))
+                    {
+                        var show = label.i == 0 || label.i % skip == 0 || label.i == chartData.PeriodLabels.Count - 1;
+                        <div class="cost-x-label @(show ? "" : "cost-x-hidden")">@label.l</div>
+                    }
+                </div>
+
+                @* Legend *@
+                @if (chartData.ModelCodes.Count > 0)
+                {
+                    <div class="cost-legend">
+                        @foreach (var mc in chartData.ModelCodes)
+                        {
+                            var color = chartData.ModelColors.TryGetValue(mc, out var c) ? c : "#a3a3a3";
+                            <div class="cost-legend-item">
+                                <span class="cost-legend-swatch" style="background:@color"></span>
+                                <span class="cost-legend-label">@mc</span>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+            else if (chartData is null)
+            {
+                <div class="empty-state" style="padding:24px">
+                    <div class="icon">
+                        <Heroicon Name="clock" Size="36" />
+                    </div>
+                    <p>Loading chart data...</p>
+                </div>
+            }
+            else
+            {
+                <div class="empty-state" style="padding:24px">
+                    <div class="icon">
+                        <Heroicon Name="banknotes" Size="36" />
+                    </div>
+                    <p>No usage data for this period.</p>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@* ── Recent Requests ──────────────────────────────────── *@
+<div class="section-header" style="margin-top:24px">
+    <h2>Recent Requests</h2>
+    <div class="section-actions">
+        <span class="log-count">@(fullLogs?.Count ?? 0) entries</span>
+        <span class="badge badge-green" style="font-size:10px">
+            <span class="badge-dot badge-dot-green"></span>
+            Live
+        </span>
+    </div>
+</div>
+<div class="table-wrap">
+    <table class="data-table log-table">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Provider</th>
+                <th>Model</th>
+                <th>API Key</th>
+                <th>Tokens</th>
+                <th>Cost</th>
+                <th>Duration</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (fullLogs is not null && fullLogs.Count > 0)
+            {
+                @foreach (var l in fullLogs)
+                {
+                    var isOpen = _openLogId == l.Id;
+                    <tr class="log-row @(l.IsError ? "log-error" : "")" @onclick="() => ToggleLog(l.Id)">
+                        <td style="font-size:12px;color:var(--text-secondary);white-space:nowrap">@UserTime.FormatShort(l.Timestamp)</td>
+                        <td><span class="badge badge-amber">@l.Provider</span></td>
+                        <td class="mono" style="font-size:12px">@l.Model</td>
+                        <td style="font-size:12px">@(l.ApiKeyName ?? "—")</td>
+                        <td><span class="mono">@l.TotalTokens</span></td>
+                        <td><span class="mono">$@l.Cost.ToString("F6")</span></td>
+                        <td style="font-size:12px;color:var(--text-secondary)">@l.DurationMs ms</td>
+                        <td style="text-align:right">
+                            @if (l.IsError)
+                            {
+                                <span class="badge badge-red" style="font-size:9px">ERR</span>
+                            }
+                            <span class="expand-icon @(isOpen ? "open" : "")">
+                                <Heroicon Name="chevron-right" Size="14" />
+                            </span>
+                        </td>
+                    </tr>
+                    @if (isOpen)
+                    {
+                        <tr class="log-detail-row open">
+                            <td colspan="8" style="padding:0">
+                                <div class="log-detail-panel" style="max-height:60vh">
+                                    @* Messages *@
+                                    <div class="detail-section">
+                                        <div class="detail-section-title">
+                                            <Heroicon Name="chat-bubble-left-right" Size="16" />
+                                            Request Messages
+                                        </div>
+                                        @if (l.Messages is { Count: > 0 })
+                                        {
+                                            <div class="message-list">
+                                                @foreach (var msg in l.Messages)
+                                                {
+                                                    <div class="message-entry role-@msg.Role">
+                                                        <div class="message-role-badge role-@msg.Role">
+                                                            @(msg.Role switch
+                                                            {
+                                                                "system" => "System",
+                                                                "user" => "User",
+                                                                "assistant" => "Assistant",
+                                                                _ => msg.Role
+                                                            })
+                                                        </div>
+                                                        <pre class="message-content"><code>@msg.Content</code></pre>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="empty-inline">No request messages</div>
+                                        }
+                                    </div>
+                                    @* Tool Calls *@
+                                    @if (l.ToolCalls is { Count: > 0 })
+                                    {
+                                        <div class="detail-section">
+                                            <div class="detail-section-title">
+                                                <Heroicon Name="code-bracket" Size="16" />
+                                                Tool Calls
+                                            </div>
+                                            <div class="tool-call-list">
+                                                @foreach (var tc in l.ToolCalls)
+                                                {
+                                                    <div class="tool-call-entry">
+                                                        <div class="tool-call-header">
+                                                            <span class="badge badge-blue">@tc.Type</span>
+                                                            <code class="tool-fn-name">@tc.FunctionName</code>
+                                                        </div>
+                                                        <div class="tool-call-args">
+                                                            <div class="args-label">Arguments:</div>
+                                                            <pre><code>@FormatJsonLog(tc.FunctionArguments)</code></pre>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                    @* Response *@
+                                    <div class="detail-section">
+                                        <div class="detail-section-title">
+                                            <Heroicon Name="sparkles" Size="16" />
+                                            AI Response
+                                            @if (l.IsError)
+                                            {
+                                                <span class="badge badge-red" style="margin-left:8px">ERROR</span>
+                                            }
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(l.ResponseContent))
+                                        {
+                                            <div class="response-content"><pre><code>@l.ResponseContent</code></pre></div>
+                                        }
+                                        @if (l.IsError && !string.IsNullOrEmpty(l.ErrorMessage))
+                                        {
+                                            <div class="error-block">
+                                                <div class="error-label">Error:</div>
+                                                <pre><code>@l.ErrorMessage</code></pre>
+                                            </div>
+                                        }
+                                        @if (string.IsNullOrEmpty(l.ResponseContent) && !l.IsError)
+                                        {
+                                            <div class="empty-inline">No response content</div>
+                                        }
+                                    </div>
+                                    @* Metadata *@
+                                    <div class="detail-section">
+                                        <div class="detail-section-title">
+                                            <Heroicon Name="rectangle-stack" Size="16" />
+                                            Metadata
+                                        </div>
+                                        <div class="meta-grid">
+                                            <div class="meta-item">
+                                                <span class="meta-label">Request ID</span>
+                                                <span class="meta-value mono" style="font-size:10px">@l.Id</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Timestamp</span>
+                                                <span class="meta-value">@UserTime.Format(l.Timestamp, "yyyy-MM-dd HH:mm:ss.fff")</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Provider</span>
+                                                <span class="meta-value">@l.Provider</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Model</span>
+                                                <span class="meta-value mono">@l.Model</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">API Key</span>
+                                                <span class="meta-value">@(l.ApiKeyName ?? "—")</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Input Tokens</span>
+                                                <span class="meta-value mono">@l.InputTokens</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Output Tokens</span>
+                                                <span class="meta-value mono">@l.OutputTokens</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Total Tokens</span>
+                                                <span class="meta-value mono">@l.TotalTokens</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Cost</span>
+                                                <span class="meta-value mono">$@l.Cost.ToString("F6")</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Duration</span>
+                                                <span class="meta-value mono">@l.DurationMs ms</span>
+                                            </div>
+                                            @if (l.IsError)
+                                            {
+                                                <div class="meta-item error-item">
+                                                    <span class="meta-label">Error</span>
+                                                    <span class="meta-value" style="color:var(--red)">@l.ErrorMessage</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            }
+            else
+            {
+                <tr><td colspan="8">
+                    <div class="empty-state">
+                        <div class="icon">
+                            <Heroicon Name="document-text" Size="36" />
+                        </div>
+                        <p>No requests yet. Send a chat request to see logs here.</p>
+                    </div>
+                </td></tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@* ── Provider & Model Usage ────────────────────────────── *@
+<div class="section-header" style="margin-top:24px"><h2>Provider &amp; Model Usage</h2></div>
+<div class="table-wrap">
+    <table class="data-table model-usage-table">
+        <thead>
+            <tr>
+                <th>Provider</th>
+                <th>Model</th>
+                <th>Status</th>
+                <th>Requests</th>
+                <th>Input</th>
+                <th>Output</th>
+                <th>Total Tokens</th>
+                <th>Cost</th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (modelUsage is not null && modelUsage.Count > 0)
+            {
+                @foreach (var g in modelUsage.GroupBy(m => m.ProviderName))
+                {
+                    var first = g.First();
+                    var providerTotalRequests = g.Sum(m => m.Requests);
+                    var providerTotalCost = g.Sum(m => m.Cost);
+                    var providerTotalIn = g.Sum(m => m.InputTokens);
+                    var providerTotalOut = g.Sum(m => m.OutputTokens);
+                    var providerTotalAll = g.Sum(m => m.TotalTokens);
+                    var isExpanded = _expandedProviders.Contains(g.Key);
+
+                    @* Provider group header *@
+                    <tr class="group-header" @onclick="() => ToggleProvider(g.Key)">
+                        <td colspan="8">
+                            <div class="group-title">
+                                <Heroicon Name="chevron-right" Size="16" Class="@("chevron" + (isExpanded ? " open" : ""))" />
+                                <span style="font-weight:600">@g.Key</span>
+                                <span class="badge @(first.ProviderEnabled ? "badge-green" : "badge-gray")" style="margin-left:8px">
+                                    <span class="badge-dot @(first.ProviderEnabled ? "badge-dot-green" : "badge-dot-gray")"></span>
+                                    @(first.ProviderEnabled ? "On" : "Off")
+                                </span>
+                                <span style="margin-left:auto;font-size:12px;color:var(--text-secondary);font-family:var(--font-mono)">
+                                    @providerTotalRequests req · @FormatNumber(providerTotalAll) tok · $@(providerTotalCost.ToString("F6"))
+                                </span>
+                            </div>
+                        </td>
+                    </tr>
+
+                    @* Model rows *@
+                    @if (isExpanded)
+                    {
+                        @foreach (var m in g)
+                        {
+                            <tr>
+                                <td></td>
+                                <td style="font-weight:500;padding-left:0">
+                                    <span style="font-size:13px">@m.ModelName</span>
+                                    <span class="mono" style="font-size:10px;color:var(--text-muted);margin-left:4px">@m.ModelCode</span>
+                                </td>
+                                <td>
+                                    <span class="badge @(m.ModelEnabled ? "badge-green" : "badge-gray")" style="font-size:11px">
+                                        <span class="badge-dot @(m.ModelEnabled ? "badge-dot-green" : "badge-dot-gray")"></span>
+                                        @(m.ModelEnabled ? "Active" : "Inactive")
+                                    </span>
+                                </td>
+                                <td><span class="mono">@m.Requests</span></td>
+                                <td><span class="mono">@FormatNumber(m.InputTokens)</span></td>
+                                <td><span class="mono">@FormatNumber(m.OutputTokens)</span></td>
+                                <td><span class="mono">@FormatNumber(m.TotalTokens)</span></td>
+                                <td style="font-family:var(--font-mono);font-size:13px">$@(m.Cost.ToString("F6"))</td>
+                            </tr>
+                        }
+                    }
+                }
+            }
+            else
+            {
+                <tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:24px">No providers found</td></tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    private DashboardService.DashboardStats? stats;
+    private DashboardService.UsageStats? usage;
+    private DashboardService.UsageChartResponse? chartData;
+    private List<DashboardService.ModelUsageView>? modelUsage;
+    private DashboardService.TimeRange selectedRange = DashboardService.TimeRange.Daily;
+    private string rangeLabel = "today";
+    private string _providerFilter = "*";
+    private string _apiKeyFilter = "*";
+    private List<string>? _providerNames;
+    private List<string>? _apiKeyNames;
+    private readonly HashSet<string> _expandedProviders = new(StringComparer.OrdinalIgnoreCase);
+
+    // ── Full Logs ──
+    private List<DashboardService.LogEntryView>? fullLogs;
+    private Guid? _openLogId;
+    private Timer? _autoRefreshTimer;
+    private const int AutoRefreshIntervalMs = 30_000;
+    private Action? _onStreamCountChanged;
+    private List<DashboardService.ProviderHealthView>? providerHealth;
+    private bool _hydrationStarted;
+
+    private static string FormatCostTitle(string label, decimal cost)
+        => $"{label} — ${cost:F4}";
+
+    protected override Task OnInitializedAsync()
+    {
+        _onStreamCountChanged = () => InvokeAsync(() =>
+        {
+            if (stats is not null)
+                stats = stats with { ActiveStreams = StreamCounter.ActiveCount };
+            StateHasChanged();
+        });
+        StreamCounter.OnCountChanged += _onStreamCountChanged;
+
+        _autoRefreshTimer = new Timer(async _ => await AutoRefresh(), null, AutoRefreshIntervalMs, AutoRefreshIntervalMs);
+        return Task.CompletedTask;
+    }
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Start database hydration only after the interactive circuit exists.
+        // Starting a fire-and-forget query during prerender lets the request
+        // scope dispose its DbContext while the query is still running.
+        if (firstRender && !_hydrationStarted)
+        {
+            _hydrationStarted = true;
+            _ = LoadInitialDataAsync();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadInitialDataAsync()
+    {
+        try
+        {
+            // Keep each stage isolated: a slow/failed optional query must not
+            // prevent the primary cards and usage summary from rendering.
+            try
+            {
+                // Do not wait for n8n during the first interactive render.
+                stats = await Svc.GetDashboardStatsAsync(includeWorkflows: false);
+                await InvokeAsync(StateHasChanged);
+            }
+            catch { }
+
+            // Filters are secondary metadata; load them after the first cards
+            // are visible so they can never delay the authenticated landing.
+            try { _providerNames = await Svc.GetProviderNamesAsync(); } catch { }
+            try { _apiKeyNames = await Svc.GetApiKeyNamesAsync(); } catch { }
+
+            try
+            {
+                await LoadUsage();
+                await InvokeAsync(StateHasChanged);
+            }
+            catch { }
+
+            try
+            {
+                modelUsage = await Svc.GetModelUsageAsync(selectedRange, _providerFilter, _apiKeyFilter);
+                ExpandEnabledProviders();
+                await InvokeAsync(StateHasChanged);
+            }
+            catch { }
+
+            try
+            {
+                chartData = await Svc.GetUsageChartDataAsync(selectedRange, _providerFilter, _apiKeyFilter);
+                await InvokeAsync(StateHasChanged);
+            }
+            catch { }
+
+            try
+            {
+                fullLogs = await Svc.GetFullLogsAsync(10);
+                await InvokeAsync(StateHasChanged);
+            }
+            catch { }
+
+            try
+            {
+                providerHealth = await Svc.GetProviderHealthAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception ex)
+            {
+                // Leave a breadcrumb: a silent swallow here is what kept this panel
+                // on "Loading..." with nothing in the logs to explain it.
+                Logger.LogWarning(ex, "Provider health panel failed to load.");
+            }
+
+            try
+            {
+                var workflows = await Svc.GetWorkflowStatsAsync();
+                if (stats is not null)
+                {
+                    stats = stats with
+                    {
+                        TotalWorkflows = workflows.Total,
+                        ActiveWorkflows = workflows.Active
+                    };
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch { }
+        }
+        catch
+        {
+            // Keep the shell usable if the circuit is disposed mid-hydration.
+         }
+    }
+
+    private async Task AutoRefresh()
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadUsage();
+                chartData = await Svc.GetUsageChartDataAsync(selectedRange, _providerFilter, _apiKeyFilter);
+                StateHasChanged();
+            });
+        }
+        catch
+        {
+            // Silently handle disposal during navigation
+        }
+    }
+
+    public void Dispose()
+    {
+        _autoRefreshTimer?.Dispose();
+        if (_onStreamCountChanged is not null)
+            StreamCounter.OnCountChanged -= _onStreamCountChanged;
+    }
+
+    private async Task LoadData()
+    {
+        stats = await Svc.GetDashboardStatsAsync();
+        await LoadUsage();
+        modelUsage = await Svc.GetModelUsageAsync(selectedRange, _providerFilter, _apiKeyFilter);
+        chartData = await Svc.GetUsageChartDataAsync(selectedRange, _providerFilter, _apiKeyFilter);
+        fullLogs = await Svc.GetFullLogsAsync(10);
+        providerHealth = await Svc.GetProviderHealthAsync();
+        if (modelUsage is not null)
+        {
+            ExpandEnabledProviders();
+        }
+    }
+
+    private void ExpandEnabledProviders()
+    {
+        if (modelUsage is null)
+            return;
+
+        foreach (var group in modelUsage.GroupBy(m => m.ProviderName))
+        {
+            if (group.First().ProviderEnabled)
+                _expandedProviders.Add(group.Key);
+        }
+    }
+
+    private async Task LoadUsage()
+    {
+        usage = await Svc.GetUsageStatsAsync(selectedRange, _providerFilter, _apiKeyFilter);
+        rangeLabel = selectedRange switch
+        {
+            DashboardService.TimeRange.Daily => "today",
+            DashboardService.TimeRange.Weekly => "this week",
+            DashboardService.TimeRange.Monthly => "this month",
+            DashboardService.TimeRange.Yearly => "this year",
+            DashboardService.TimeRange.All => "all time",
+            _ => ""
+        };
+    }
+
+    private async Task SetRange(DashboardService.TimeRange range)
+    {
+        selectedRange = range;
+        Svc.NavigationDate = null;
+        await LoadUsage();
+        modelUsage = await Svc.GetModelUsageAsync(range, _providerFilter, _apiKeyFilter);
+        chartData = await Svc.GetUsageChartDataAsync(range, _providerFilter, _apiKeyFilter);
+        fullLogs = await Svc.GetFullLogsAsync(10);
+    }
+
+    private async Task PrevPeriod()
+    {
+        Svc.NavigationDate = Svc.NavigationDate.HasValue
+            ? AdjustNavDate(-1)
+            : AdjustNavDate(-1);
+        await LoadUsage();
+        modelUsage = await Svc.GetModelUsageAsync(selectedRange, _providerFilter, _apiKeyFilter);
+        chartData = await Svc.GetUsageChartDataAsync(selectedRange, _providerFilter, _apiKeyFilter);
+        fullLogs = await Svc.GetFullLogsAsync(10);
+    }
+
+    private async Task NextPeriod()
+    {
+        var current = Svc.NavigationDate ?? UserTime.ToLocal(DateTimeOffset.UtcNow);
+        var next = AdjustNavDate(1);
+        if (next > UserTime.ToLocal(DateTimeOffset.UtcNow))
+        {
+            Svc.NavigationDate = null;
+        }
+        else
+        {
+            Svc.NavigationDate = next;
+        }
+        await LoadUsage();
+        modelUsage = await Svc.GetModelUsageAsync(selectedRange, _providerFilter, _apiKeyFilter);
+        chartData = await Svc.GetUsageChartDataAsync(selectedRange, _providerFilter, _apiKeyFilter);
+        fullLogs = await Svc.GetFullLogsAsync(10);
+    }
+
+    private DateTimeOffset AdjustNavDate(int direction)
+    {
+        var current = Svc.NavigationDate ?? UserTime.ToLocal(DateTimeOffset.UtcNow);
+        return selectedRange switch
+        {
+            DashboardService.TimeRange.Daily => current.AddDays(direction),
+            DashboardService.TimeRange.Weekly => current.AddDays(7 * direction),
+            DashboardService.TimeRange.Monthly => current.AddMonths(direction),
+            DashboardService.TimeRange.Yearly => current.AddYears(direction),
+            _ => current
+        };
+    }
+
+    private async Task OnFilterChanged()
+    {
+        await LoadUsage();
+        modelUsage = await Svc.GetModelUsageAsync(selectedRange, _providerFilter, _apiKeyFilter);
+        chartData = await Svc.GetUsageChartDataAsync(selectedRange, _providerFilter, _apiKeyFilter);
+        fullLogs = await Svc.GetFullLogsAsync(10);
+    }
+
+    private void ToggleProvider(string name)
+    {
+        if (!_expandedProviders.Remove(name))
+            _expandedProviders.Add(name);
+    }
+
+    private void ToggleLog(Guid id)
+    {
+        _openLogId = _openLogId == id ? null : id;
+    }
+
+    private static string FormatJsonLog(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "";
+        try
+        {
+            var doc = JsonDocument.Parse(raw);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return raw;
+        }
+    }
+
+    private static string FormatNumber(int n) => n switch
+    {
+        >= 1_000_000 => $"{n / 1_000_000.0:F2}M",
+        >= 1_000 => $"{n / 1_000.0:F1}K",
+        _ => n.ToString("N0")
+    };
+
+    [Inject] private DashboardService Svc { get; set; } = default!;
+    [Inject] private ActiveStreamCounter StreamCounter { get; set; } = default!;
+}

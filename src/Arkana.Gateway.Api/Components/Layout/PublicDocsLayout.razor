@@ -1,0 +1,110 @@
+@inherits LayoutComponentBase
+
+<div class="docs-layout">
+    <header class="docs-topbar">
+        <a class="docs-brand" href="/docs">
+            <span class="docs-brand-mark"><img src="/arkana.png" alt="" /></span>
+            <span>
+                <strong>ARKANA GATEWAY</strong>
+                <small>Dokumentasi Agent</small>
+            </span>
+        </a>
+        <nav class="docs-topnav" aria-label="Aksi dokumentasi">
+            <a href="/docs/api">Referensi API</a>
+            <button type="button" class="topbar-theme-btn docs-theme-toggle" title="Ganti tema" aria-label="Ganti tema">
+                <span class="material-symbols-outlined" aria-hidden="true">dark_mode</span>
+            </button>
+            <AuthorizeView>
+                <Authorized>
+                    <a class="btn btn-primary docs-dashboard-link" href="/dashboard">Dashboard</a>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="btn btn-primary docs-dashboard-link" href="/login">Login</a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </nav>
+    </header>
+
+    <div class="docs-frame">
+        <aside class="docs-sidebar" aria-label="Navigasi dokumentasi">
+            <div class="docs-sidebar-label">Mulai di sini</div>
+            <NavLink href="/docs" Match="NavLinkMatch.All" class="docs-nav-item">
+                <Heroicon Name="book-open" Size="17" /> Ringkasan
+            </NavLink>
+            <NavLink href="/docs/api" class="docs-nav-item">
+                <Heroicon Name="code-bracket" Size="17" /> Referensi API
+            </NavLink>
+
+            <div class="docs-sidebar-label">Panduan Agent</div>
+            <NavLink href="/docs/codex" class="docs-nav-item">
+                <Heroicon Name="cpu-chip" Size="17" /> Codex
+            </NavLink>
+            <NavLink href="/docs/opencode" class="docs-nav-item">
+                <Heroicon Name="command-line" Size="17" /> OpenCode
+            </NavLink>
+            <NavLink href="/docs/zero" class="docs-nav-item">
+                <Heroicon Name="bolt" Size="17" /> Zero
+            </NavLink>
+            <NavLink href="/docs/kilo" class="docs-nav-item">
+                <Heroicon Name="wrench-screwdriver" Size="17" /> Kilo Code
+            </NavLink>
+            <NavLink href="/docs/cline" class="docs-nav-item">
+                <Heroicon Name="command-line" Size="17" /> Cline
+            </NavLink>
+            <NavLink href="/docs/roo" class="docs-nav-item">
+                <Heroicon Name="wrench-screwdriver" Size="17" /> Roo Code
+            </NavLink>
+            <NavLink href="/docs/continue" class="docs-nav-item">
+                <Heroicon Name="cube" Size="17" /> Continue
+            </NavLink>
+            <NavLink href="/docs/aider" class="docs-nav-item">
+                <Heroicon Name="pencil-square" Size="17" /> Aider
+            </NavLink>
+            <NavLink href="/docs/litellm" class="docs-nav-item">
+                <Heroicon Name="arrows-right-left" Size="17" /> LiteLLM
+            </NavLink>
+            <NavLink href="/docs/claude" class="docs-nav-item">
+                <Heroicon Name="information-circle" Size="17" /> Claude Code
+            </NavLink>
+            <NavLink href="/docs/gemini" class="docs-nav-item">
+                <Heroicon Name="sparkles" Size="17" /> Gemini CLI
+            </NavLink>
+            <NavLink href="/docs/cursor" class="docs-nav-item">
+                <Heroicon Name="sparkles" Size="17" /> Cursor
+            </NavLink>
+            <NavLink href="/docs/pi" class="docs-nav-item">
+                <Heroicon Name="cpu-chip" Size="17" /> Pi Agent
+            </NavLink>
+            <NavLink href="/docs/openclaude" class="docs-nav-item">
+                <Heroicon Name="command-line" Size="17" /> OpenClaude
+            </NavLink>
+            <NavLink href="/docs/windsurf" class="docs-nav-item">
+                <Heroicon Name="sparkles" Size="17" /> Windsurf
+            </NavLink>
+            <NavLink href="/docs/hermes" class="docs-nav-item">
+                <Heroicon Name="sparkles" Size="17" /> Hermes
+            </NavLink>
+            <NavLink href="/docs/openclaw" class="docs-nav-item">
+                <Heroicon Name="bolt" Size="17" /> OpenClaw
+            </NavLink>
+            <NavLink href="/docs/odysseus" class="docs-nav-item">
+                <Heroicon Name="server" Size="17" /> Odysseus
+            </NavLink>
+            <NavLink href="/docs/autonomous-setup" class="docs-nav-item">
+                <Heroicon Name="sparkles" Size="17" /> Autonomous Setup
+            </NavLink>
+            <NavLink href="/docs/agents" class="docs-nav-item">
+                <Heroicon Name="squares-2x2" Size="17" /> Semua Agent
+            </NavLink>
+        </aside>
+
+        <main class="docs-main">
+            @Body
+        </main>
+    </div>
+
+    <footer class="docs-footer">
+        <span>ARKANA GATEWAY</span>
+        <span>Routing OpenAI-compatible untuk Agent coding</span>
+    </footer>
+</div>

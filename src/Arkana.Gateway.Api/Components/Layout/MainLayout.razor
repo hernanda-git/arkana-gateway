@@ -1,0 +1,270 @@
+@implements IDisposable
+@inherits LayoutComponentBase
+@inject UserTimeService UserTime
+
+<div class="layout">
+    <nav class="sidebar">
+        <a class="sidebar-brand" href="">
+            <div class="sidebar-brand-icon">
+                <img src="arkana.png" alt="AI Gateway" class="sidebar-brand-logo" />
+            </div>
+            <div>
+                <div class="sidebar-brand-title">Arkana</div>
+                <div class="sidebar-brand-subtitle">AI Gateway</div>
+            </div>
+        </a>
+
+        <div class="sidebar-nav">
+            <div class="sidebar-section-label">Main</div>
+
+            <NavLink class="sidebar-item" href="" Match="NavLinkMatch.All" title="Dashboard">
+                <Heroicon Name="home" Size="20" />
+                <span>Dashboard</span>
+            </NavLink>
+
+            <NavLink class="sidebar-item" href="/api-keys" title="API Keys">
+                <Heroicon Name="key" Size="20" />
+                <span>API Keys</span>
+            </NavLink>
+
+            <NavLink class="sidebar-item" href="/providers" title="Providers">
+                <Heroicon Name="server" Size="20" />
+                <span>Providers</span>
+            </NavLink>
+
+            <NavLink class="sidebar-item" href="/key-pools" title="Key Pools">
+                <Heroicon Name="key" Size="20" />
+                <span>Key Pools</span>
+            </NavLink>
+
+            <NavLink class="sidebar-item" href="/agent-manager" title="Agents">
+                <Heroicon Name="cpu-chip" Size="20" />
+                <span>Agents</span>
+            </NavLink>
+
+            <NavLink class="sidebar-item" href="/workflows" title="Workflows">
+                <Heroicon Name="arrows-right-left" Size="20" />
+                <span>Workflows</span>
+            </NavLink>
+            <NavLink class="sidebar-item" href="/knowledge-base" title="Knowledge Base">
+                <Heroicon Name="rectangle-stack" Size="20" />
+                <span>Knowledge Base</span>
+            </NavLink>
+
+            <div class="sidebar-section-label" style="margin-top:4px">Monitor</div>
+
+            <NavLink class="sidebar-item" href="/cost" title="Cost">
+                <Heroicon Name="banknotes" Size="20" />
+                <span>Cost</span>
+            </NavLink>
+
+            <NavLink class="sidebar-item" href="/logs" title="Logs">
+                <Heroicon Name="document-text" Size="20" />
+                <span>Logs</span>
+            </NavLink>
+
+            <div class="sidebar-section-label" style="margin-top:4px">System</div>
+
+            <AuthorizeView Roles="Admin">
+                <NavLink class="sidebar-item" href="/admin/users" title="Users">
+                    <Heroicon Name="users" Size="20" />
+                    <span>Users</span>
+                </NavLink>
+            </AuthorizeView>
+
+            <NavLink class="sidebar-item" href="/settings" title="Settings">
+                <Heroicon Name="cog-6-tooth" Size="20" />
+                <span>Settings</span>
+            </NavLink>
+        </div>
+
+        <div class="sidebar-bottom">
+            <button class="sidebar-item" @onclick="RefreshAll" title="Refresh">
+                <Heroicon Name="arrow-path" Size="20" />
+                <span>Refresh</span>
+            </button>
+            <AuthorizeView>
+                <Authorized>
+                    <a class="sidebar-item" href="/logout" title="Logout">
+                        <Heroicon Name="arrow-right-end-on-rectangle" Size="20" />
+                        <span>Logout @_username</span>
+                    </a>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="sidebar-item" href="/login" title="Login">
+                        <Heroicon Name="arrow-left-start-on-rectangle" Size="20" />
+                        <span>Login</span>
+                    </a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+    </nav>
+
+    <div class="main">
+        <header class="topbar">
+            <div class="topbar-left">
+                <h1>@_pageTitle</h1>
+            </div>
+            <div class="topbar-right">
+                <button class="topbar-theme-btn" @onclick="ToggleTheme" title="Toggle theme" aria-label="Toggle theme">
+                    <Heroicon Name="@(_isDark ? "sun" : "moon")" Size="20" />
+                </button>
+                <div class="topbar-clock">
+                    <Heroicon Name="clock" Size="14" />
+                    <span>@_currentTime</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="content">
+            @Body
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _currentTime = "";
+    private string _pageTitle = "Dashboard";
+    private string _username = "";
+    private bool _isDark = false;
+    private Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        SetPageTitle();
+        UpdateTime();
+        _timer = new Timer(async _ =>
+        {
+            await InvokeAsync(() =>
+            {
+                UpdateTime();
+                StateHasChanged();
+            });
+        }, null, 1000, 1000);
+    }
+
+    private async Task InitBrowserTimeZoneAsync()
+    {
+        try
+        {
+            var browserTz = await JSRuntime.InvokeAsync<string>("getBrowserTimeZone");
+            if (!string.IsNullOrWhiteSpace(browserTz))
+            {
+                UserTime.TrySetBrowserTimeZone(browserTz);
+                StateHasChanged();
+            }
+        }
+        catch
+        {
+            // Prerender / circuit-disconnect / interop failure — safe no-op.
+            // The clock keeps running on the configured/UTC fallback already.
+        }
+    }
+
+    private async Task<bool> IsDarkAsync()
+    {
+        try
+        {
+            return await JSRuntime.InvokeAsync<bool>("GatewayTheme.isDark");
+        }
+        catch { return false; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        _username = authState.User.Identity?.Name ?? "";
+        // In the open-dashboard mode (AUTH=0) there is no authenticated principal;
+        // the resolver then pins the configured ADMIN_TENANT_ID so tenant-scoped
+        // pages (Request Logs, provider health) load instead of throwing.
+        if (TenantResolver.TryResolve(authState, out var tenantId))
+        {
+            TenantContext.SetTenant(tenantId);
+        }
+        else
+        {
+            TenantContext.ClearTenant();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Wire browser timezone after the first INTERACTIVE render (§1.1):
+            // JS interop is not callable during prerender or before the circuit is up.
+            await InitBrowserTimeZoneAsync();
+            try
+            {
+                _isDark = await IsDarkAsync();
+                StateHasChanged();
+            }
+            catch
+            {
+                // Browser theme is optional; keep the default when JS is unavailable.
+            }
+        }
+    }
+
+    private void UpdateTime()
+    {
+        try
+        {
+            // yyyy-MM-dd HH:mm:ss (default) + offset — self-describing, always dated.
+            _currentTime = $"{UserTime.Format(DateTimeOffset.UtcNow)}  {UserTime.UtcOffsetString}";
+        }
+        catch
+        {
+            _currentTime = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "  UTC";
+        }
+    }
+
+    private void SetPageTitle()
+    {
+        var uri = NavigationManager.Uri;
+        var path = new Uri(uri).AbsolutePath.TrimEnd('/');
+        _pageTitle = path switch
+        {
+            "" or "/" or "/dashboard" => "Dashboard",
+            "/logs" => "Request Logs",
+            "/api-keys" => "API Keys",
+            "/providers" => "AI Providers",
+            "/key-pools" => "Key Pools",
+            "/agent-manager" => "AI Agents",
+            "/cost" => "Cost Analytics",
+            "/workflows" => "Workflows",
+            "/knowledge-base" => "Knowledge Base",
+            "/settings" => "Settings",
+            "/admin/users" => "User Management",
+            _ => "AI Gateway"
+        };
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+    }
+
+    private async Task ToggleTheme()
+    {
+        _isDark = !_isDark;
+        try
+        {
+            await JSRuntime.InvokeAsync<object>("GatewayTheme.apply", _isDark);
+        }
+        catch { }
+        StateHasChanged();
+    }
+
+    private void RefreshAll()
+    {
+        NavigationManager.NavigateTo(NavigationManager.Uri, forceLoad: true);
+    }
+
+    [Inject] private NavigationManager NavigationManager { get; set; } = default!;
+    [Inject] private AuthenticationStateProvider AuthenticationStateProvider { get; set; } = default!;
+    [Inject] private DashboardTenantResolver TenantResolver { get; set; } = default!;
+    [Inject] private ITenantContextAccessor TenantContext { get; set; } = default!;
+    [Inject] private IJSRuntime JSRuntime { get; set; } = default!;
+}

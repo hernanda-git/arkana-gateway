@@ -1,0 +1,54 @@
+@page "/docs/api"
+@layout PublicDocsLayout
+
+<PageTitle>Referensi API · ARKANA GATEWAY</PageTitle>
+
+<header class="docs-page-header"><div><span class="docs-kicker">Referensi</span><h1>Interface API OpenAI-compatible</h1><p>Gateway menyediakan Interface HTTP untuk Agent dan aplikasi. Production Base URL adalah <code>https://gateway.arkana.dev/v1</code>.</p></div><span class="docs-agent-mark"><Heroicon Name="code-bracket" Size="28" /></span></header>
+
+<section class="docs-prose-section"><h2>Endpoint</h2><div class="docs-table-wrap"><table class="data-table docs-table"><thead><tr><th>Fungsi</th><th>Method</th><th>Path</th><th>Auth</th></tr></thead><tbody><tr><td>Health</td><td><code>GET</code></td><td><code>/health</code></td><td>Public</td></tr><tr><td>Models</td><td><code>GET</code></td><td><code>/v1/models</code></td><td>API key</td></tr><tr><td>Chat completions</td><td><code>POST</code></td><td><code>/v1/chat/completions</code></td><td>API key</td></tr><tr><td>Responses</td><td><code>POST</code></td><td><code>/v1/responses</code></td><td>API key</td></tr><tr><td>MCP</td><td><code>POST</code></td><td><code>/mcp/</code></td><td>API key</td></tr></tbody></table></div></section>
+
+<section class="docs-prose-section"><h2>Authentication</h2><pre class="docs-code"><code>Authorization: Bearer YOUR_GATEWAY_API_KEY</code></pre><p>Gunakan Secret store atau environment variable. Jangan menaruh API key di URL, query string, repository, screenshot, atau report.</p></section>
+
+<section class="docs-prose-section"><h2>Models</h2><pre class="docs-code"><code>curl -fsS https://gateway.arkana.dev/v1/models \
+  -H "Authorization: Bearer YOUR_GATEWAY_API_KEY"</code></pre><p>Model ID bersifat key-scoped. Gunakan ID persis dari Response Models, bukan nama display atau tebakan.</p></section>
+
+<section class="docs-prose-section"><h2>Responses API</h2><pre class="docs-code"><code>curl -N -X POST https://gateway.arkana.dev/v1/responses \
+  -H "Authorization: Bearer YOUR_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5.5",
+    "input": "Reply exactly RESPONSES_GATEWAY_OK",
+    "stream": true
+  }'</code></pre><p>Codex wajib menggunakan <code>wire_api = "responses"</code>. Gateway menangani Responses event stream, Provider routing, dan continuation Tool.</p></section>
+
+<section class="docs-prose-section"><h2>Chat Completions</h2><pre class="docs-code"><code>curl -X POST https://gateway.arkana.dev/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5.5",
+    "messages": [{"role":"user","content":"Reply exactly CHAT_GATEWAY_OK"}],
+    "stream": false
+  }'</code></pre><p>Gunakan jalur ini untuk client OpenAI-compatible yang belum mendukung Responses API.</p></section>
+
+<section class="docs-prose-section"><h2>Tool call</h2><pre class="docs-code"><code>{
+  "model": "gpt-5.5",
+  "messages": [{"role":"user","content":"Use the shell tool to create a proof file"}],
+  "tools": [{
+    "type": "function",
+    "function": {
+      "name": "shell_command",
+      "description": "Run a local shell command",
+      "parameters": {
+        "type": "object",
+        "properties": {"command": {"type": "string"}},
+        "required": ["command"]
+      }
+    }
+  }],
+  "tool_choice": "auto",
+  "stream": true
+}</code></pre><p>Gateway hanya mengirim Tool call. Agent lokal yang menjalankan Tool. Acceptance test harus memeriksa real Tool event dan artifact readback, bukan teks assistant saja.</p></section>
+
+<section class="docs-prose-section"><h2>Production verification</h2><ol class="docs-list"><li><code>/health</code> mengembalikan status sehat.</li><li><code>/v1/models</code> mengembalikan model untuk key.</li><li>Text marker kembali persis.</li><li>Agent menghasilkan real Tool event.</li><li>Artifact dibuat dan dibaca kembali.</li><li>Gateway Logs menunjukkan Provider, Model, Path, dan <code>IsError: false</code>.</li></ol><p>Complex Codex Tool-loop production report tersedia di repository dan diringkas pada <a href="/docs/codex">panduan Codex</a>.</p></section>
+
+<section class="docs-callout"><Heroicon Name="shield-check" Size="21" /><div><strong>Credential tidak pernah menjadi bagian dari dokumentasi.</strong><p>Gunakan placeholder pada contoh. API key production hanya boleh berada di Secret store, environment variable, atau konfigurasi lokal yang tidak di-commit.</p></div></section>

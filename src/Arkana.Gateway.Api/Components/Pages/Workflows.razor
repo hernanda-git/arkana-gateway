@@ -1,0 +1,215 @@
+@page "/workflows"
+@rendermode InteractiveServer
+
+<PageTitle>Workflows</PageTitle>
+
+<div class="section-header">
+    <h2>Workflows</h2>
+    <button class="btn btn-sm" @onclick="Load" title="Refresh"><Heroicon Name="arrow-path" Size="14" /> Refresh</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="empty-state">
+        <div class="icon"><Heroicon Name="exclamation-triangle" Size="40" /></div>
+        <p style="color:var(--text-secondary);font-size:14px">@_error</p>
+        <p style="margin-top:8px;font-size:13px;color:var(--text-secondary)">
+            Make sure n8n is running at the configured URL and the API key is set.
+        </p>
+    </div>
+}
+else if (_workflows is null)
+{
+    <div class="empty-state">
+        <div class="icon"><Heroicon Name="clock" Size="40" /></div>
+        <p>Loading workflows…</p>
+    </div>
+}
+else if (_workflows.Count == 0)
+{
+    <div class="empty-state">
+        <div class="icon"><Heroicon Name="arrow-right" Size="40" /></div>
+        <p>No workflows found in n8n.</p>
+        <p style="margin-top:8px;font-size:13px;color:var(--text-secondary)">
+            Create workflows at <a href="@_n8nUrl" target="_blank" rel="noopener">@_n8nUrl</a>
+        </p>
+    </div>
+}
+else
+{
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Workflow</th>
+                    <th>Status</th>
+                    <th>Trigger</th>
+                    <th>Schedule / Webhook</th>
+                    <th>Tags</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var wf in _workflows)
+                {
+                    <tr>
+                        <td style="font-weight:500">
+                            <a href="/workflows/@wf.Id" style="color:var(--text-primary);text-decoration:none">
+                                @wf.Name
+                            </a>
+                            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">
+                                @wf.NodeCount nodes
+                            </div>
+                        </td>
+                        <td>
+                            <span class="badge @(wf.Active ? "badge-green" : "badge-gray")">
+                                <span class="badge-dot @(wf.Active ? "badge-dot-green" : "badge-dot-gray")"></span>
+                                @(wf.Active ? "Active" : "Inactive")
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge badge-trigger-@TriggerClass(wf.TriggerType)">
+                                @TriggerLabel(wf.TriggerType)
+                            </span>
+                        </td>
+                        <td style="font-size:12px;color:var(--text-secondary);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                            @if (wf.TriggerType == WorkflowTriggerType.Cron && !string.IsNullOrEmpty(wf.CronExpression))
+                            {
+                                <span class="mono">@wf.CronExpression</span>
+                            }
+                            else if (wf.TriggerType == WorkflowTriggerType.Webhook && !string.IsNullOrEmpty(wf.WebhookUrl))
+                            {
+                                <span class="mono">@wf.WebhookUrl</span>
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                        </td>
+                        <td style="font-size:12px">
+                            @if (wf.Tags.Any())
+                            {
+                                foreach (var tag in wf.Tags)
+                                {
+                                    <span class="badge badge-gray" style="margin-right:4px;font-size:11px">@tag</span>
+                                }
+                            }
+                            else
+                            {
+                                <span style="color:var(--text-secondary)">—</span>
+                            }
+                        </td>
+                        <td style="text-align:right;white-space:nowrap">
+                            <button class="btn btn-sm" @onclick="() => RunWorkflow(wf.Id)" title="Execute now">
+                                <Heroicon Name="play" Size="14" /> Run
+                            </button>
+                            <button class="btn btn-sm" @onclick="() => ToggleWorkflow(wf.Id, wf.Active)">
+                                @if (wf.Active)
+                                {
+                                    <Heroicon Name="pause" Size="14" /> @("Deactivate")
+                                }
+                                else
+                                {
+                                    <Heroicon Name="play" Size="14" /> @("Activate")
+                                }
+                            </button>
+                            <a class="btn btn-sm" href="/workflows/@wf.Id">Details</a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (_toast is not null)
+{
+    <div class="toast @(_toastIsError ? "toast-error" : "toast-success")">
+        @_toast
+    </div>
+}
+
+@code {
+    private List<WorkflowInfo>? _workflows;
+    private string? _error;
+    private string? _toast;
+    private bool _toastIsError;
+    private string _n8nUrl = "http://localhost:5678";
+
+    [Inject] private IN8nService N8n { get; set; } = default!;
+    [Inject] private IConfiguration Config { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _n8nUrl = Config["N8n:BaseUrl"] ?? "http://localhost:5678";
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _error = null;
+        _toast = null;
+        try
+        {
+            _workflows = (await N8n.GetWorkflowsAsync()).ToList();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not connect to n8n: {ex.Message}";
+            _workflows = null;
+        }
+    }
+
+    private async Task RunWorkflow(string id)
+    {
+        try
+        {
+            var result = await N8n.ExecuteWorkflowAsync(id);
+            ShowToast($"Workflow execution started (ID: {result.Id})");
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Failed to execute: {ex.Message}", isError: true);
+        }
+    }
+
+    private async Task ToggleWorkflow(string id, bool currentlyActive)
+    {
+        try
+        {
+            if (currentlyActive)
+                await N8n.DeactivateWorkflowAsync(id);
+            else
+                await N8n.ActivateWorkflowAsync(id);
+
+            ShowToast(currentlyActive ? "Workflow deactivated" : "Workflow activated");
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Failed to toggle: {ex.Message}", isError: true);
+        }
+    }
+
+    private void ShowToast(string message, bool isError = false)
+    {
+        _toast = message;
+        _toastIsError = isError;
+    }
+
+    private static string TriggerLabel(WorkflowTriggerType type) => type switch
+    {
+        WorkflowTriggerType.Cron => "Cron",
+        WorkflowTriggerType.Webhook => "Webhook",
+        WorkflowTriggerType.Mixed => "Mixed",
+        _ => "Manual"
+    };
+
+    private static string TriggerClass(WorkflowTriggerType type) => type switch
+    {
+        WorkflowTriggerType.Cron => "blue",
+        WorkflowTriggerType.Webhook => "purple",
+        WorkflowTriggerType.Mixed => "orange",
+        _ => "gray"
+    };
+}

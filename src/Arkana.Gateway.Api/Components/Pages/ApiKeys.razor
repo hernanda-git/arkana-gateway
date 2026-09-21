@@ -1,0 +1,732 @@
+@page "/api-keys"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Arkana.Gateway.Api.Services
+@inject UserTimeService UserTime
+
+<PageTitle>API Keys</PageTitle>
+
+<div class="section-header">
+    <h2>API Keys</h2>
+    <button class="btn btn-primary" @onclick="OpenCreate">+ New Key</button>
+</div>
+
+<div class="table-wrap">
+    <table class="data-table">
+        <thead>
+            <tr><th>Name</th><th>Key</th><th>Provider Boundary</th><th>Policy</th><th>30d Actual Routing</th><th>Allowed Models</th><th>Status</th><th>Created</th><th></th></tr>
+        </thead>
+        <tbody>
+            @if (keys is not null && keys.Count > 0)
+            {
+                @foreach (var k in keys)
+                {
+                    <tr>
+                        <td style="font-weight:500">@k.Name</td>
+                        <td>
+                            <div style="display:flex;align-items:center;gap:6px">
+                                <span class="mono" style="font-size:13px">@k.Prefix</span>
+                                <button class="btn-icon" @onclick="() => OpenRoll(k)" title="Roll / regenerate token" style="flex-shrink:0">
+                                    <Heroicon Name="arrow-path" Size="14" />
+                                </button>
+                            </div>
+                        </td>
+                        <td>
+                            @if (string.IsNullOrWhiteSpace(k.PreferredProviderCode))
+                            {
+                                <span class="badge badge-red">UNCONFIGURED</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-blue mono">@k.PreferredProviderCode</span>
+                            }
+                        </td>
+                        <td>
+                            <span class="badge @(k.AllowProviderFallback ? "badge-amber" : "badge-green")">
+                                @(k.AllowProviderFallback ? "Fallback allowed" : "Strict · fail closed")
+                            </span>
+                        </td>
+                        <td>
+                            @if (routingHistory.TryGetValue(k.Name, out var history) && history.Count > 0)
+                            {
+                                @foreach (var h in history)
+                                {
+                                    var mismatch = !string.Equals(h.ProviderCode, k.PreferredProviderCode, StringComparison.OrdinalIgnoreCase);
+                                    <div style="margin-bottom:3px">
+                                        <span class="badge @(mismatch ? "badge-red" : "badge-gray") mono">@h.ProviderCode · @h.Requests</span>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <span style="color:var(--text-muted);font-size:12px">No requests</span>
+                            }
+                        </td>
+                        <td>
+                            @if (k.AllowedModelIds.Count > 0)
+                            {
+                                var keyModels = allModels?.Where(m => k.AllowedModelIds.Contains(m.Id)).ToList();
+                                if (keyModels?.Count > 0)
+                                {
+                                    var grouped = keyModels.GroupBy(m => m.ProviderName);
+                                    foreach (var g in grouped)
+                                    {
+                                        <div style="margin-bottom:4px">
+                                            <span style="font-size:11px;color:var(--text-secondary);font-weight:500">@g.Key</span>
+                                            @foreach (var m in g)
+                                            {
+                                                <span class="badge badge-gray" style="margin:1px 2px">@m.Name</span>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                <span class="badge badge-amber">All models</span>
+                            }
+                        </td>
+                        <td>
+                            <span class="badge @(k.IsActive ? "badge-green" : "badge-gray")">
+                                <span class="badge-dot @(k.IsActive ? "badge-dot-green" : "badge-dot-gray")"></span>
+                                @(k.IsActive ? "Active" : "Inactive")
+                            </span>
+                        </td>
+                        <td style="font-size:12px;color:var(--text-secondary)">@UserTime.Format(k.CreatedAt, "MMM dd, yyyy")</td>
+                        <td style="text-align:right;white-space:nowrap">
+                            <div class="action-col">
+                                <button class="btn-icon" @onclick="() => OpenEdit(k)" title="Edit">
+                                    <Heroicon Name="pencil-square" Size="16" />
+                                </button>
+                                <label class="toggle" style="vertical-align:middle">
+                                    <input type="checkbox" checked="@k.IsActive" @onchange="() => ToggleKey(k.Id)" />
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <button class="btn-icon btn-danger" @onclick="() => DeleteKey(k.Id)" title="Delete">
+                                    <Heroicon Name="trash" Size="16" />
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            }
+            else
+            {
+                <tr><td colspan="9"><div class="empty-state"><div class="icon"><Heroicon Name="key" Size="48" /></div><p>No API keys yet.</p></div></td></tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@* ── Create Modal ───────────────────────────────────────── *@
+<Modal Show="@showCreate" Title="Create API Key" Icon="key" Size="ModalSize.Large" OnClose="CloseCreate">
+    <Body>
+        <div class="apikey-form-grid">
+            <div class="form-col">
+                <div class="form-group">
+                    <label class="col-label">Name</label>
+                    <input type="text" @bind="newKeyName" placeholder="e.g. production-key" />
+                </div>
+                <label class="col-label">Pinned Provider <span class="hint-tag">required</span></label>
+                <p class="col-hint">This is the hard routing boundary. Strict mode never uses another provider or account.</p>
+                <select value="@newPreferredProvider" @onchange="ChangeCreateProvider" style="width:100%;margin-bottom:12px">
+                    <option value="">Select provider...</option>
+                    @foreach (var prov in providersWithModels ?? [])
+                    {
+                        <option value="@prov.Code">@prov.Name (@prov.Code)</option>
+                    }
+                </select>
+                <label class="override-toggle" style="margin-bottom:12px">
+                    <input type="checkbox" @bind="newAllowProviderFallback" />
+                    Allow fallback to another provider/account when unavailable
+                </label>
+                <label class="col-label">Allowed Models <span class="hint-tag">same provider only</span></label>
+                <p class="col-hint">Only models owned by the pinned provider can be selected.</p>
+                <div class="provider-tree">
+                    <div class="model-picker-grid compact">
+                        @foreach (var m in CreateProviderModels)
+                        {
+                            <label class="model-checkbox">
+                                <input type="checkbox" value="@m.Id" checked="@newKeyModelIds.Contains(m.Id)"
+                                       @onchange="() => ToggleCreateModel(m.Id)" />
+                                <span>@m.Name</span>
+                                <span class="mono" style="font-size:10px;color:var(--text-muted);margin-left:auto">@m.Code</span>
+                            </label>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="form-col">
+                <label class="col-label">Rate Limit Overrides</label>
+                <p class="col-hint">Override the global defaults for this key only.</p>
+                <label class="override-toggle">
+                    <input type="checkbox" checked="@newKeyOverrideRates" @onchange="ToggleCreateOverrideRates" />
+                    Override default rate limits
+                </label>
+                <div class="rate-inputs @(newKeyOverrideRates ? "" : "disabled")">
+                    <div>
+                        <label>Requests / minute (RPM)</label>
+                        <input type="number" @bind="newKeyRpm" min="1" max="100000" disabled="@(!newKeyOverrideRates)" />
+                    </div>
+                    <div>
+                        <label>Tokens / minute (TPM)</label>
+                        <input type="number" @bind="newKeyTpm" min="1" max="100000000" disabled="@(!newKeyOverrideRates)" />
+                    </div>
+                    <div>
+                        <label>Max Concurrent</label>
+                        <input type="number" @bind="newKeyMaxConc" min="1" max="1000" disabled="@(!newKeyOverrideRates)" />
+                    </div>
+                    <p class="rate-defaults-note">Defaults when enabled: @defaultRpm RPM · @defaultTpm TPM · @defaultMaxConc concurrent. Leave unchecked to inherit globals.</p>
+                </div>
+            </div>
+        </div>
+        @if (createdKey is not null)
+        {
+            <div style="margin-top:16px">
+                <p style="font-size:13px;color:var(--green);margin-bottom:8px"><span class="material-symbols-outlined">check_circle</span> Key created!</p>
+                <div class="key-display">
+                    <span>@createdKey</span>
+                    <button class="copy-btn" @onclick="CopyKey"><Heroicon Name="key" Size="16" Style="vertical-align:middle;margin-right:4px" /> Copy</button>
+                </div>
+                <p style="font-size:12px;color:var(--text-muted);margin-top:6px">Save this key — it will not be shown again.</p>
+            </div>
+        }
+        @if (!string.IsNullOrWhiteSpace(formError))
+        {
+            <div class="alert alert-error" style="margin-top:12px">@formError</div>
+        }
+    </Body>
+    <Footer>
+        @if (createdKey is null)
+        {
+            <button class="btn" @onclick="CloseCreate">Cancel</button>
+            <button class="btn btn-primary" @onclick="SubmitCreate">Create Key</button>
+        }
+        else
+        {
+            <button class="btn btn-primary" @onclick="DoneCreate">Done</button>
+        }
+    </Footer>
+</Modal>
+
+@* ── Edit Modal (Name + Providers/Models + Rate overrides + Routing) ── *@
+<Modal Show="@showEdit" Title="Edit API Key" Icon="pencil-square" Size="ModalSize.Large" OnClose="CloseEdit">
+    <Body>
+        <div class="apikey-form-grid">
+            <div class="form-col">
+                <div class="form-group">
+                    <label class="col-label">Name</label>
+                    <input type="text" @bind="editKeyName" placeholder="Key name" />
+                </div>
+                <label class="col-label">Pinned Provider <span class="hint-tag">required</span></label>
+                <p class="col-hint">The selected provider/account is the key's hard boundary.</p>
+                <select value="@editPreferredProvider" @onchange="ChangeEditProvider" style="width:100%;margin-bottom:12px">
+                    <option value="">Select provider...</option>
+                    @foreach (var prov in providersWithModels ?? [])
+                    {
+                        <option value="@prov.Code">@prov.Name (@prov.Code)</option>
+                    }
+                </select>
+                <label class="override-toggle" style="margin-bottom:12px">
+                    <input type="checkbox" @bind="editAllowProviderFallback" />
+                    Allow fallback to another provider/account when unavailable
+                </label>
+                <label class="col-label">Allowed Models <span class="hint-tag">same provider only</span></label>
+                <div class="provider-tree">
+                    <div class="model-picker-grid compact">
+                        @foreach (var m in EditProviderModels)
+                        {
+                            <label class="model-checkbox">
+                                <input type="checkbox" value="@m.Id" checked="@editKeyModelIds.Contains(m.Id)"
+                                       @onchange="() => ToggleEditModel(m.Id)" />
+                                <span>@m.Name</span>
+                                <span class="mono" style="font-size:10px;color:var(--text-muted);margin-left:auto">@m.Code</span>
+                            </label>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="form-col">
+                <label class="col-label">Rate Limit Overrides</label>
+                <p class="col-hint">Override the global defaults for this key only.</p>
+                <label class="override-toggle">
+                    <input type="checkbox" checked="@editKeyOverrideRates" @onchange="ToggleEditOverrideRates" />
+                    Override default rate limits
+                </label>
+                <div class="rate-inputs @(editKeyOverrideRates ? "" : "disabled")">
+                    <div>
+                        <label>Requests / minute (RPM)</label>
+                        <input type="number" @bind="editRpm" min="1" max="100000" disabled="@(!editKeyOverrideRates)" />
+                    </div>
+                    <div>
+                        <label>Tokens / minute (TPM)</label>
+                        <input type="number" @bind="editTpm" min="1" max="100000000" disabled="@(!editKeyOverrideRates)" />
+                    </div>
+                    <div>
+                        <label>Max Concurrent</label>
+                        <input type="number" @bind="editMaxConc" min="1" max="1000" disabled="@(!editKeyOverrideRates)" />
+                    </div>
+                    <p class="rate-defaults-note">Defaults when enabled: @defaultRpm RPM · @defaultTpm TPM · @defaultMaxConc concurrent. Leave unchecked to inherit globals.</p>
+                </div>
+
+                <label class="col-label" style="margin-top:18px">Routing History · last 30 days</label>
+                <p class="col-hint">Actual providers that served this key. Red means historical traffic crossed the current pin.</p>
+                @if (editRoutingHistory.Count == 0)
+                {
+                    <div style="color:var(--text-muted);font-size:12px">No recorded requests.</div>
+                }
+                @foreach (var h in editRoutingHistory)
+                {
+                    var mismatch = !string.Equals(h.ProviderCode, editPreferredProvider, StringComparison.OrdinalIgnoreCase);
+                    <div style="display:flex;justify-content:space-between;margin:6px 0">
+                        <span class="badge @(mismatch ? "badge-red" : "badge-gray") mono">@h.ProviderCode</span>
+                        <span style="font-size:12px">@h.Requests requests · @h.Errors errors · last @UserTime.Format(h.LastUsedAt, "MMM dd HH:mm")</span>
+                    </div>
+                }
+            </div>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(formError))
+        {
+            <div class="alert alert-error" style="margin-top:12px">@formError</div>
+        }
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseEdit">Cancel</button>
+        <button class="btn btn-primary" @onclick="SubmitEdit">Save</button>
+    </Footer>
+</Modal>
+
+@* ── Roll / regenerate token confirmation ──────────────── *@
+<Modal Show="@showRollKey" Title="Roll API Key" Icon="arrow-path" Size="ModalSize.Small" OnClose="CloseRollKey">
+    <Body>
+        @if (rolledKeyPlain is null)
+        {
+            <p class="confirm-message">Regenerate the token for <strong>@(rollKey?.Name)</strong>? The current key stops working <strong>immediately</strong> and any client using it must be updated with the new key.</p>
+        }
+        else
+        {
+            <p style="font-size:13px;color:var(--green);margin-bottom:8px"><span class="material-symbols-outlined">check_circle</span> Token rolled!</p>
+            <div class="key-display">
+                <span>@rolledKeyPlain</span>
+                <button class="copy-btn" @onclick="CopyRolledKey"><Heroicon Name="key" Size="16" Style="vertical-align:middle;margin-right:4px" /> Copy</button>
+            </div>
+            <p style="font-size:12px;color:var(--text-muted);margin-top:6px">Copy this key now — it will not be shown again.</p>
+        }
+    </Body>
+    <Footer>
+        @if (rolledKeyPlain is null)
+        {
+            <button class="btn" @onclick="CloseRollKey">Cancel</button>
+            <button class="btn btn-primary" @onclick="RollKeyConfirmed">Roll Key</button>
+        }
+        else
+        {
+            <button class="btn btn-primary" @onclick="CloseRollKey">Done</button>
+        }
+    </Footer>
+</Modal>
+
+@* ── Delete Confirmation ────────────────────────────────── *@
+<ConfirmDialog Show="@showDeleteKey" Title="Delete API Key" Icon="trash"
+               Message="Delete this API key? This action cannot be undone."
+               ConfirmText="Delete" ConfirmClass="btn-danger" OnConfirm="DeleteKeyConfirmed" OnCancel="CloseDeleteKey" />
+
+@code {
+    private List<DashboardService.ApiKeyView>? keys;
+    private List<DashboardService.ProviderWithModels>? providersWithModels;
+    private List<DashboardService.ModelView>? allModels;
+    private Dictionary<string, List<DashboardService.ApiKeyRoutingHistoryView>> routingHistory =
+        new(StringComparer.OrdinalIgnoreCase);
+    private List<DashboardService.ApiKeyRoutingHistoryView> editRoutingHistory = [];
+    private string? formError;
+
+    // Collapsible provider tree state (api-keys editor)
+    private HashSet<Guid> expandedProviders = new();
+    private bool IsProviderExpanded(Guid id) => expandedProviders.Contains(id);
+    private void ToggleProviderExpand(Guid id)
+    {
+        if (expandedProviders.Contains(id)) expandedProviders.Remove(id);
+        else expandedProviders.Add(id);
+    }
+
+    // Create modal
+    private bool showCreate;
+    private string newKeyName = "";
+    private List<Guid> newKeyModelIds = [];
+    private List<Guid> newKeyProviderIds = [];
+    private string newPreferredProvider = "";
+    private bool newAllowProviderFallback;
+    private string? createdKey;
+    private bool newKeyOverrideRates;
+    private int newKeyRpm = 60;
+    private int newKeyTpm = 1_000_000;
+    private int newKeyMaxConc = 5;
+
+    // Edit modal
+    private bool showEdit;
+    private Guid editKeyId;
+    private string editKeyName = "";
+    private List<Guid> editKeyModelIds = [];
+    private List<Guid> editKeyProviderIds = [];
+    private bool editKeyOverrideRates;
+    private int? editRpm;
+    private string editPreferredProvider = "";
+    private bool editAllowProviderFallback;
+    private int? editTpm;
+    private int? editMaxConc;
+
+    // Delete confirm
+    private bool showDeleteKey;
+    private Guid deleteKeyId;
+
+    // Global defaults (for the override default values / hints)
+    private int defaultRpm = 60;
+    private int defaultTpm = 1_000_000;
+    private int defaultMaxConc = 5;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+        try
+        {
+            defaultRpm = await RateCfg.GetDefaultRpmAsync();
+            defaultTpm = await RateCfg.GetDefaultTpmAsync();
+            defaultMaxConc = await RateCfg.GetDefaultMaxConcurrentAsync();
+        }
+        catch { /* fall back to hardcoded defaults */ }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || keys is null)
+            return;
+
+        // History is supplementary data. Load it after the first interactive
+        // render so a slow request-log query cannot blank the API-key list.
+        await LoadRoutingHistory();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadData()
+    {
+        keys = await Svc.GetApiKeysAsync();
+        providersWithModels = await Svc.GetProvidersWithModelsAsync();
+        allModels = providersWithModels?.SelectMany(p => p.Models).ToList();
+        // Default: expand every provider that has models (user can collapse any).
+        expandedProviders = new HashSet<Guid>(
+            (providersWithModels?.Where(p => p.Models.Count > 0) ?? [])
+            .Select(p => p.Id));
+    }
+
+    private async Task LoadRoutingHistory()
+    {
+        var loaded = new Dictionary<string, List<DashboardService.ApiKeyRoutingHistoryView>>(
+            StringComparer.OrdinalIgnoreCase);
+
+        // IRequestLogger uses a scoped EF Core DbContext. Concurrent searches
+        // via Task.WhenAll can fail the Blazor circuit with overlapping DB
+        // operations, so keep this secondary loading sequential and isolated.
+        foreach (var key in keys ?? [])
+        {
+            try
+            {
+                loaded[key.Name] = await Svc.GetApiKeyRoutingHistoryAsync(key.Name, 30);
+            }
+            catch
+            {
+                // A history query must never take down the API-key page.
+                loaded[key.Name] = [];
+            }
+        }
+
+        routingHistory = loaded;
+    }
+
+    private List<DashboardService.ModelView> CreateProviderModels =>
+        providersWithModels?.FirstOrDefault(p => p.Code.Equals(newPreferredProvider,
+            StringComparison.OrdinalIgnoreCase))?.Models ?? [];
+
+    private List<DashboardService.ModelView> EditProviderModels =>
+        providersWithModels?.FirstOrDefault(p => p.Code.Equals(editPreferredProvider,
+            StringComparison.OrdinalIgnoreCase))?.Models ?? [];
+
+    // ── Provider helpers ─────────────────────────────────────
+    private List<Guid> ModelsOfProvider(DashboardService.ProviderWithModels prov)
+        => prov.Models.Select(m => m.Id).ToList();
+
+    private bool IsProviderFullyChecked(DashboardService.ProviderWithModels prov, List<Guid> selected)
+    {
+        var models = ModelsOfProvider(prov);
+        return models.Count > 0 && models.All(m => selected.Contains(m));
+    }
+
+    // ── Create ────────────────────────────────────────────────
+    private void OpenCreate()
+    {
+        showCreate = true;
+        newKeyName = "";
+        newKeyModelIds = [];
+        newKeyProviderIds = [];
+        newPreferredProvider = "";
+        newAllowProviderFallback = false;
+        formError = null;
+        createdKey = null;
+        newKeyOverrideRates = false;
+        newKeyRpm = defaultRpm;
+        newKeyTpm = defaultTpm;
+        newKeyMaxConc = defaultMaxConc;
+    }
+
+    private void ChangeCreateProvider(ChangeEventArgs args)
+    {
+        newPreferredProvider = args.Value?.ToString() ?? "";
+        newKeyModelIds = CreateProviderModels.Select(m => m.Id).ToList();
+        formError = null;
+    }
+
+    private void CloseCreate() { showCreate = false; createdKey = null; }
+
+    private void ToggleCreateProvider(DashboardService.ProviderWithModels prov)
+    {
+        var models = ModelsOfProvider(prov);
+        if (newKeyProviderIds.Contains(prov.Id))
+        {
+            // Was fully checked (or partially) -> uncheck provider and all its models
+            newKeyProviderIds.Remove(prov.Id);
+            newKeyModelIds.RemoveAll(m => models.Contains(m));
+        }
+        else
+        {
+            newKeyProviderIds.Add(prov.Id);
+            foreach (var m in models)
+                if (!newKeyModelIds.Contains(m)) newKeyModelIds.Add(m);
+        }
+    }
+
+    private void ToggleCreateModel(Guid id)
+    {
+        if (newKeyModelIds.Contains(id))
+            newKeyModelIds.Remove(id);
+        else
+            newKeyModelIds.Add(id);
+        // Keep provider checkbox in sync with its models
+        SyncProviderState(id);
+    }
+
+    private void SyncProviderState(Guid modelId)
+    {
+        var prov = providersWithModels?.FirstOrDefault(p => p.Models.Any(m => m.Id == modelId));
+        if (prov is null) return;
+        if (ModelsOfProvider(prov).All(m => newKeyModelIds.Contains(m)))
+            newKeyProviderIds.Add(prov.Id);
+        else
+            newKeyProviderIds.Remove(prov.Id);
+    }
+
+    private void ToggleCreateOverrideRates()
+    {
+        newKeyOverrideRates = !newKeyOverrideRates;
+        if (newKeyOverrideRates)
+        {
+            newKeyRpm = defaultRpm;
+            newKeyTpm = defaultTpm;
+            newKeyMaxConc = defaultMaxConc;
+        }
+    }
+
+    private async Task SubmitCreate()
+    {
+        formError = null;
+        if (string.IsNullOrWhiteSpace(newKeyName)) { formError = "Name is required."; return; }
+        if (string.IsNullOrWhiteSpace(newPreferredProvider)) { formError = "Pinned provider is required."; return; }
+        if (newKeyModelIds.Count == 0) { formError = "Select at least one model."; return; }
+        try
+        {
+            var (id, plain) = await Svc.CreateApiKeyAsync(newKeyName.Trim(), newKeyModelIds,
+                newPreferredProvider, newAllowProviderFallback);
+            if (newKeyOverrideRates)
+                await Svc.UpdateApiKeyRateLimitsAsync(id, newKeyRpm, newKeyTpm, newKeyMaxConc);
+            createdKey = plain;
+        }
+        catch (InvalidOperationException ex)
+        {
+            formError = ex.Message;
+        }
+    }
+
+    private async Task CopyKey()
+    {
+        await Js.InvokeVoidAsync("navigator.clipboard.writeText", createdKey ?? "");
+    }
+
+    private async Task DoneCreate()
+    {
+        showCreate = false;
+        createdKey = null;
+        await LoadData();
+    }
+
+    // ── Edit (Name + Providers/Models + Rate overrides + Routing) ──
+    private Task OpenEdit(DashboardService.ApiKeyView key)
+    {
+        showEdit = true;
+        formError = null;
+        editKeyId = key.Id;
+        editKeyName = key.Name;
+        editKeyModelIds = [.. key.AllowedModelIds];
+        editRpm = key.RateLimitRpm;
+        editTpm = key.RateLimitTpm;
+        editMaxConc = key.RateLimitMaxConcurrent;
+        editKeyOverrideRates = key.RateLimitRpm.HasValue
+                                || key.RateLimitTpm.HasValue
+                                || key.RateLimitMaxConcurrent.HasValue;
+        editPreferredProvider = key.PreferredProviderCode ?? "";
+        editAllowProviderFallback = key.AllowProviderFallback;
+        editRoutingHistory = routingHistory.TryGetValue(key.Name, out var history) ? history : [];
+        // Derive checked provider set from the model selection
+        editKeyProviderIds = [];
+        if (providersWithModels is not null)
+            foreach (var prov in providersWithModels)
+                if (IsProviderFullyChecked(prov, editKeyModelIds))
+                    editKeyProviderIds.Add(prov.Id);
+        return Task.CompletedTask;
+    }
+
+    private void ChangeEditProvider(ChangeEventArgs args)
+    {
+        editPreferredProvider = args.Value?.ToString() ?? "";
+        editKeyModelIds = EditProviderModels.Select(m => m.Id).ToList();
+        formError = null;
+    }
+
+    private void CloseEdit() { showEdit = false; }
+
+    private void ToggleEditProvider(DashboardService.ProviderWithModels prov)
+    {
+        var models = ModelsOfProvider(prov);
+        if (editKeyProviderIds.Contains(prov.Id))
+        {
+            editKeyProviderIds.Remove(prov.Id);
+            editKeyModelIds.RemoveAll(m => models.Contains(m));
+        }
+        else
+        {
+            editKeyProviderIds.Add(prov.Id);
+            foreach (var m in models)
+                if (!editKeyModelIds.Contains(m)) editKeyModelIds.Add(m);
+        }
+    }
+
+    private void ToggleEditModel(Guid id)
+    {
+        if (editKeyModelIds.Contains(id))
+            editKeyModelIds.Remove(id);
+        else
+            editKeyModelIds.Add(id);
+        var prov = providersWithModels?.FirstOrDefault(p => p.Models.Any(m => m.Id == id));
+        if (prov is null) return;
+        if (ModelsOfProvider(prov).All(m => editKeyModelIds.Contains(m)))
+            editKeyProviderIds.Add(prov.Id);
+        else
+            editKeyProviderIds.Remove(prov.Id);
+    }
+
+    private void ToggleEditOverrideRates()
+    {
+        editKeyOverrideRates = !editKeyOverrideRates;
+        if (editKeyOverrideRates)
+        {
+            editRpm ??= defaultRpm;
+            editTpm ??= defaultTpm;
+            editMaxConc ??= defaultMaxConc;
+        }
+    }
+
+    private async Task SubmitEdit()
+    {
+        formError = null;
+        if (string.IsNullOrWhiteSpace(editPreferredProvider)) { formError = "Pinned provider is required."; return; }
+        if (editKeyModelIds.Count == 0) { formError = "Select at least one model."; return; }
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(editKeyName))
+                await Svc.RenameApiKeyAsync(editKeyId, editKeyName.Trim());
+            await Svc.UpdateApiKeyRoutingAsync(editKeyId, editPreferredProvider,
+                editAllowProviderFallback, editKeyModelIds);
+            await Svc.UpdateApiKeyRateLimitsAsync(
+                editKeyId,
+                editKeyOverrideRates ? editRpm : null,
+                editKeyOverrideRates ? editTpm : null,
+                editKeyOverrideRates ? editMaxConc : null);
+            RateCfg.InvalidateKeyCache(editKeyName);
+            showEdit = false;
+            await LoadData();
+        }
+        catch (InvalidOperationException ex)
+        {
+            formError = ex.Message;
+        }
+    }
+
+    // ── Toggle / Delete ───────────────────────────────────────
+    private async Task ToggleKey(Guid id)
+    {
+        await Svc.ToggleApiKeyAsync(id);
+        await LoadData();
+    }
+
+    private void DeleteKey(Guid id)
+    {
+        deleteKeyId = id;
+        showDeleteKey = true;
+    }
+
+    private async Task DeleteKeyConfirmed()
+    {
+        await Svc.DeleteApiKeyAsync(deleteKeyId, Db);
+        showDeleteKey = false;
+        await LoadData();
+    }
+
+    private void CloseDeleteKey()
+    {
+        showDeleteKey = false;
+    }
+
+    // ── Roll / regenerate token ────────────────────────────
+    private bool showRollKey;
+    private DashboardService.ApiKeyView? rollKey;
+    private string? rolledKeyPlain;
+
+    private void OpenRoll(DashboardService.ApiKeyView key)
+    {
+        rollKey = key;
+        rolledKeyPlain = null;
+        showRollKey = true;
+    }
+
+    private void CloseRollKey()
+    {
+        showRollKey = false;
+        rollKey = null;
+    }
+
+    private async Task RollKeyConfirmed()
+    {
+        if (rollKey is null) return;
+        var (_, plain) = await Svc.RotateApiKeyAsync(rollKey.Id);
+        rolledKeyPlain = plain;
+        await LoadData();
+        StateHasChanged();
+    }
+
+    private async Task CopyRolledKey()
+    {
+        if (!string.IsNullOrEmpty(rolledKeyPlain))
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", rolledKeyPlain);
+    }
+
+    [Inject] private DashboardService Svc { get; set; } = default!;
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+    [Inject] private Arkana.Infrastructure.Persistence.GatewayDbContext Db { get; set; } = default!;
+    [Inject] private RateLimitConfigService RateCfg { get; set; } = default!;
+}

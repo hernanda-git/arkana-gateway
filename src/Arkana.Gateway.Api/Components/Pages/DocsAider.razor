@@ -1,0 +1,9 @@
+@page "/docs/aider"
+@layout PublicDocsLayout
+<PageTitle>Aider · ARKANA GATEWAY</PageTitle>
+<header class="docs-page-header"><div><span class="docs-kicker">Panduan Agent · Aider</span><h1>Aider</h1><p>Hubungkan Aider ke ARKANA GATEWAY menggunakan konfigurasi OpenAI-compatible dan environment variable.</p></div><span class="docs-agent-mark"><Heroicon Name="pencil-square" Size="28" /></span></header>
+<section class="docs-prose-section"><h2>Setup</h2><pre class="docs-code"><code>export OPENAI_API_BASE=https://gateway.arkana.dev/v1
+export OPENAI_API_KEY=YOUR_GATEWAY_API_KEY
+aider --model gpt-5.5</code></pre><p>Gunakan Secret manager atau environment variable. Jangan memasukkan API key ke command history atau file repository.</p></section>
+<section class="docs-prose-section"><h2>Status</h2><p><span class="badge">Conditional</span> Aider memakai jalur OpenAI-compatible. Verifikasi actual version dengan text request, edit file, test command, artifact readback, dan Gateway Logs.</p></section>
+<section class="docs-prose-section"><h2>Troubleshooting</h2><div class="docs-grid docs-grid-2"><div class="docs-card"><h3>401</h3><p>Pastikan <code>OPENAI_API_KEY</code> menunjuk ke Gateway key dan Base URL berakhir di <code>/v1</code>.</p></div><div class="docs-card"><h3>Tool tidak jalan</h3><p>Periksa apakah Aider menerima Tool/function calling dari custom model. Jika tidak, tandai limitation client.</p></div></div></section>

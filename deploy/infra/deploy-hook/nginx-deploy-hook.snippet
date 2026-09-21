@@ -1,0 +1,12 @@
+# nginx site snippet: proxy Git deploy webhook to the local receiver.
+# Save as /etc/nginx/sites-enabled/deploy-hook.conf (or include in arkana-gateway.conf).
+# Listen is reused on the existing TLS server block port (8443) via a location.
+# Add this INSIDE the existing `server { ... }` block in arkana-gateway.conf,
+# OR as its own location. Minimal version below proxies /deploy-hook.
+location /deploy-hook {
+    proxy_pass http://127.0.0.1:9000/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Deploy-Secret $http_x_deploy_secret;
+    proxy_read_timeout 120s;
+}

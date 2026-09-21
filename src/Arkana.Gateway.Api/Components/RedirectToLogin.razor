@@ -1,0 +1,12 @@
+@inject NavigationManager NavigationManager
+
+@code {
+    /// <summary>
+    /// Renders nothing; on first render it force-navigates the browser to the
+    /// login page. Used as the <see cref="AuthorizeRouteView"/> NotAuthorized
+    /// content. Only fires when authentication is enabled (otherwise the
+    /// authorization DefaultPolicy allows anonymous users and this is never hit).
+    /// </summary>
+    protected override void OnInitialized() =>
+        NavigationManager.NavigateTo("/login", forceLoad: true);
+}

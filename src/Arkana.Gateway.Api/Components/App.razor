@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <title>AI Gateway</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=block" rel="stylesheet">
+    <link href="/app.css" rel="stylesheet" />
+    <link href="/docs.css" rel="stylesheet" />
+    <link rel="icon" type="image/x-icon" href="/arkana.ico" />
+    <HeadOutlet />
+    <script>
+        // Apply persisted theme before Blazor renders to avoid a flash of the wrong theme.
+        (function () {
+            try {
+                var t = localStorage.getItem('theme');
+                if (!t) {
+                    t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                }
+                document.documentElement.classList.toggle('dark', t === 'dark');
+            } catch (e) { /* no-op */ }
+        })();
+    </script>
+    <script>
+        // Theme helpers + toggle wiring. Uses a capture-phase delegated listener
+        // on document so the toggle works regardless of Blazor's event handling
+        // or SignalR circuit state (pure client-side).
+        window.GatewayTheme = {
+            apply: function (isDark) {
+                if (isDark === undefined) {
+                    isDark = !document.documentElement.classList.contains('dark');
+                }
+                document.documentElement.classList.toggle('dark', isDark);
+                document.querySelectorAll('.topbar-theme-btn .material-symbols-outlined').forEach(function (icon) {
+                    icon.textContent = isDark ? 'light_mode' : 'dark_mode';
+                });
+                document.querySelectorAll('.topbar-theme-btn').forEach(function (button) {
+                    button.setAttribute('title', isDark ? 'Gunakan mode terang' : 'Gunakan mode gelap');
+                    button.setAttribute('aria-label', isDark ? 'Gunakan mode terang' : 'Gunakan mode gelap');
+                });
+                try { localStorage.setItem('theme', isDark ? 'dark' : 'light'); } catch (e) { }
+                return isDark;
+            },
+            toggle: function () {
+                return window.GatewayTheme.apply();
+            },
+            isDark: function () {
+                return document.documentElement.classList.contains('dark');
+            }
+        };
+        (function () {
+            function wire() {
+                var btn = document.querySelector('.topbar-theme-btn');
+                if (btn && !btn.dataset.themeWired) {
+                    btn.dataset.themeWired = '1';
+                    // capture: true => fires before Blazor's own handlers
+                    btn.addEventListener('click', function (ev) {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        window.GatewayTheme.toggle();
+                    }, true);
+                }
+            }
+            document.addEventListener('DOMContentLoaded', wire);
+            // Blazor may re-render the button; re-wire if needed.
+            // This script runs in <head>, so document.body may not exist yet —
+            // observing null throws and was logged as a page error on every load.
+            var mo = new MutationObserver(wire);
+            function observeBody() { mo.observe(document.body, { childList: true, subtree: true }); }
+            if (document.body) observeBody();
+            else document.addEventListener('DOMContentLoaded', observeBody);
+            wire();
+
+            // ── Modal helpers (scroll lock) ──
+            window.GatewayModal = {
+                lockScroll: function (lock) {
+                    var n = parseInt(document.body.getAttribute('data-modal-count') || '0', 10);
+                    if (lock) n++; else n = Math.max(0, n - 1);
+                    document.body.setAttribute('data-modal-count', n);
+                    document.body.style.overflow = n > 0 ? 'hidden' : '';
+                }
+            };
+        })();
+    </script>
+</head>
+<body>
+    <Routes />
+    <script src="/js/user-tz.js"></script>
+    <script src="/_framework/blazor.server.js"></script>
+    <script src="/drag-scroll.js"></script>
+    <script src="/docs-prompt.js"></script>
+</body>
+</html>

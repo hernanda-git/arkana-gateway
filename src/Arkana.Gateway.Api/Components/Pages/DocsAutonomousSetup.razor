@@ -1,0 +1,104 @@
+@page "/docs/autonomous-setup"
+@layout PublicDocsLayout
+<PageTitle>Autonomous Agent Setup · ARKANA GATEWAY</PageTitle>
+<header class="docs-page-header"><div><span class="docs-kicker">Panduan Operasional · Autonomous Setup</span><h1>Biarkan Agent melakukan setup sendiri</h1><p>Gunakan prompt di bawah agar Agent melakukan inspeksi, konfigurasi, verification, dan report setup ARKANA GATEWAY secara autonomous tanpa meminta input interaktif dari user.</p></div><span class="docs-agent-mark"><Heroicon Name="sparkles" Size="28" /></span></header>
+
+<section class="docs-prose-section"><h2>Prasyarat wajib</h2><ul class="docs-list"><li>API key Gateway sudah diprovision di environment variable <code>GATEWAY_API_KEY</code> atau Secret store machine.</li><li>Machine memiliki akses HTTPS ke <code>https://gateway.arkana.dev</code>.</li><li>Agent CLI atau Desktop sudah terinstall.</li><li>Agent memiliki permission untuk membaca dan mengubah config miliknya sendiri.</li><li>Agent dapat menjalankan command verification pada workspace temporary.</li></ul><p class="docs-note">Jika credential belum tersedia, Agent tidak boleh membuat, menebak, meminta user menempelkan key, atau melanjutkan dengan key palsu. Agent harus menghasilkan failure report yang aman.</p></section>
+
+<section class="docs-prose-section"><h2>Variables</h2><div class="docs-definition-list"><div><dt>Base URL</dt><dd><code>https://gateway.arkana.dev/v1</code></dd></div><div><dt>Health</dt><dd><code>https://gateway.arkana.dev/health</code></dd></div><div><dt>Provider</dt><dd><code>arkana-gateway</code></dd></div><div><dt>Codex model</dt><dd><code>gpt-5.5</code></dd></div><div><dt>Codex wire API</dt><dd><code>responses</code></dd></div><div><dt>Credential variable</dt><dd><code>GATEWAY_API_KEY</code></dd></div></div></section>
+
+<section class="docs-prose-section"><h2>Prompt autonomous setup</h2><p>Copy seluruh prompt berikut ke Agent. Prompt ini sengaja memerintahkan Agent untuk tidak bertanya dan tidak mencetak secret.</p><div class="docs-prompt-actions"><button type="button" class="btn btn-primary" onclick="GatewayDocsPrompt.copy('autonomous-setup-prompt', this)">Copy prompt</button><button type="button" class="btn" onclick="GatewayDocsPrompt.download('autonomous-setup-prompt', 'arkana-gateway-autonomous-setup.md')">Download Markdown</button></div><pre class="docs-code"><code id="autonomous-setup-prompt">You are an autonomous ARKANA GATEWAY setup operator.
+
+Your job is to install and configure the requested AI Agent on this machine so it uses ARKANA GATEWAY in production. Execute the work end-to-end. Do not ask the human for confirmation or routine input.
+
+PRODUCTION CONTRACT
+- Gateway Base URL: https://gateway.arkana.dev/v1
+- Health URL: https://gateway.arkana.dev/health
+- Provider id: arkana-gateway
+- Verified Codex model: gpt-5.5
+- Codex wire API: responses
+- Credential source: environment variable GATEWAY_API_KEY or the machine's approved Secret store
+
+SECURITY RULES
+1. Never print, echo, log, screenshot, commit, upload, or include any API key, OAuth token, password, cookie, or secret in your output.
+2. Never ask the human to paste a secret into chat, a prompt, an issue, a shell command, or a repository.
+3. Read the credential only through the existing environment variable or approved Secret store mechanism.
+4. If GATEWAY_API_KEY is missing, empty, rejected, or inaccessible, stop safely and report CREDENTIAL_UNAVAILABLE. Do not invent a value and do not ask a question.
+5. Do not rotate, revoke, create, or modify Gateway credentials.
+6. Do not modify unrelated projects, source repositories, WIP files, shell profiles, or system-wide policy.
+7. Back up every existing Agent config file before editing it. Use a timestamped local backup outside Git.
+8. Do not commit generated config, backups, reports, or test artifacts.
+
+PHASE 1: INSPECT
+1. Detect the operating system and shell.
+2. Detect the requested Agent and exact installed version.
+3. Find the Agent's real config path using its help/version output and existing files. Do not guess a path if it can be discovered.
+4. Inspect current Provider/model configuration without printing secret values.
+5. Detect whether the client supports OpenAI-compatible Chat Completions, Responses, or neither.
+6. Detect whether the client exposes real local Tools. Browser Tool is not assumed.
+7. Create a safe local work directory under the system temporary directory.
+
+PHASE 2: BACKUP AND CONFIGURE
+1. Create a timestamped backup of each config file that will be changed.
+2. Configure only the requested Agent.
+3. Use this production Base URL exactly: https://gateway.arkana.dev/v1
+4. Use GATEWAY_API_KEY through the Agent's secure environment/Secret mechanism.
+5. For Codex, configure:
+   model = gpt-5.5
+   model_provider = arkana-gateway
+   wire_api = responses
+   env_key = GATEWAY_API_KEY
+   Do not use a localhost adapter.
+6. For OpenAI-compatible Chat clients, configure the Base URL, model, and Secret using the schema of the installed version.
+7. For OpenClaude, use its documented OpenAI-compatible Provider flow or OPENAI_BASE_URL/OPENAI_API_KEY/OPENAI_MODEL environment mapping.
+8. For Pi, use its documented models.json or extension custom-provider schema. Do not omit required model metadata.
+9. For Hermes, use its model wizard or config.yaml custom provider with provider: custom and the Gateway Base URL.
+10. For OpenClaw, use its documented models.providers custom/base URL schema and a provider/model reference. Do not use fork-only environment shortcuts unless the installed build documents them.
+11. For Windsurf, Claude Code, Gemini CLI, Cursor, or any product-specific client, configure only if the installed version explicitly exposes a compatible custom Endpoint. Otherwise report UNSUPPORTED_PROTOCOL without inventing a workaround.
+12. Preserve unrelated Provider blocks and existing user settings.
+
+PHASE 3: VERIFY
+1. Verify the Gateway Health URL. Record only HTTP status and safe status text.
+2. Verify authenticated GET /v1/models. Confirm the requested model exists. Never print the Authorization header or response credential fields.
+3. Run a harmless text request with a unique marker. Require the exact marker.
+4. If the client exposes a real local Tool, run one artifact-producing test:
+   - create a temporary directory
+   - write a file containing AUTONOMOUS_GATEWAY_TOOL_OK
+   - read the file back
+   - independently verify the file outside the Agent
+5. Do not accept an Agent sentence claiming that a Tool ran. Require a real Tool event and artifact readback.
+6. Attempt Browser Tool only if the client actually exposes a Browser Tool. If absent, report BROWSER_TOOL_UNAVAILABLE.
+7. Check Gateway Logs if the operator has an approved read-only log mechanism. Verify Provider, Model, Request Path, status, and IsError. Never include secret values.
+8. Clean up temporary artifacts after capturing safe verification facts, unless the report explicitly needs a non-secret proof path.
+
+PHASE 4: FINAL REPORT
+Write a local report containing only:
+- status: SUCCESS, PARTIAL, or FAILED
+- Agent name and version
+- operating system
+- config path changed
+- backup path
+- Provider id
+- Base URL
+- model
+- wire/API mode
+- credential status: PRESENT, MISSING, or REJECTED
+- health status code
+- models status
+- text marker status
+- real Tool event status
+- artifact readback status
+- Browser Tool status
+- Gateway Log status
+- unsupported capability or remediation code
+
+The report must never contain the API key, token, password, cookie, Authorization header, full request headers, or secret-bearing config.
+
+SUCCESS requires: configuration saved, Health passed, authenticated Models passed, text marker passed, and real Tool/artifact verification passed when the client exposes Tools.
+PARTIAL is allowed only when the client has no local Tool or Browser Tool. Explain the exact missing capability.
+FAILED is required for missing credentials, authentication failure, invalid config, unsupported protocol, or missing artifact verification when Tools were promised.
+
+Finish by printing only the safe final report summary. Do not ask the human a question.
+</code></pre></section>
+
+<section class="docs-prose-section"><h2>Acceptance criteria</h2><div class="docs-grid docs-grid-2"><div class="docs-card"><h3>SUCCESS</h3><p>Config tersimpan, Health passed, Models passed, text marker passed, dan real Tool/artifact passed jika client memiliki Tool.</p></div><div class="docs-card"><h3>PARTIAL</h3><p>Hanya boleh digunakan jika client tidak mengekspos Tool atau Browser Tool. Limitation harus ditulis eksplisit.</p></div><div class="docs-card"><h3>FAILED</h3><p>Credential missing/rejected, protocol tidak didukung, config invalid, atau verification tidak memiliki bukti artifact.</p></div><div class="docs-card"><h3>NO HALLUCINATION</h3><p>Kalimat Agent bukan bukti. Gunakan HTTP status, real Tool event, artifact readback, dan Gateway Logs.</p></div></div></section>

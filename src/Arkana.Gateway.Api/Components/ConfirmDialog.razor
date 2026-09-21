@@ -1,0 +1,63 @@
+@* ConfirmDialog — standardized confirmation dialog (replaces window.confirm).
+   Usage:
+     <ConfirmDialog Show="@_showDelete" Title="Delete User"
+                    Message="@($"Delete '{_user.Username}'? This cannot be undone.")"
+                    ConfirmText="Delete" ConfirmClass="btn-danger"
+                    Icon="trash" OnConfirm="DeleteUser" OnCancel="CloseDelete" />
+
+   Behavior: overlay click / Escape / Cancel all invoke OnCancel; the confirm
+   button invokes OnConfirm and shows a brief "working" state via IsBusy.
+*@
+@namespace Arkana.Gateway.Api.Components
+
+<Modal Show="@Show" Title="@Title" Icon="@Icon" Size="@Size"
+       CloseOnOverlayClick="@CloseOnOverlay" ShowCloseButton="@ShowCloseButton"
+       OnClose="OnCancel">
+    <Body>
+        <p class="confirm-message">@Message</p>
+        @if (ChildContent is not null)
+        {
+            @ChildContent
+        }
+    </Body>
+    <Footer>
+        <button class="btn" type="button" @onclick="OnCancel" disabled="@IsBusy">@CancelText</button>
+        <button class="btn @ConfirmClass" type="button" @onclick="OnConfirmClick" disabled="@IsBusy">
+            @(IsBusy ? BusyText : ConfirmText)
+        </button>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public string Title { get; set; } = "Confirm";
+    [Parameter] public string Icon { get; set; } = "exclamation-triangle";
+    [Parameter] public string Message { get; set; } = "";
+    [Parameter] public string ConfirmText { get; set; } = "Confirm";
+    [Parameter] public string CancelText { get; set; } = "Cancel";
+    [Parameter] public string BusyText { get; set; } = "Working…";
+    [Parameter] public string ConfirmClass { get; set; } = "btn-primary";
+    [Parameter] public bool ShowCloseButton { get; set; } = true;
+    [Parameter] public bool CloseOnOverlay { get; set; } = true;
+    [Parameter] public ModalSize Size { get; set; } = ModalSize.Small;
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private bool IsBusy { get; set; }
+
+    private async Task OnConfirmClick()
+    {
+        IsBusy = true;
+        try
+        {
+            await OnConfirm.InvokeAsync();
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private Task HandleCancel() => OnCancel.InvokeAsync();
+}

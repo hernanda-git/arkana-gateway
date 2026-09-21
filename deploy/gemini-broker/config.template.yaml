@@ -1,0 +1,23 @@
+# Minimal non-secret CLIProxyAPI configuration for a broker slot.
+# cliproxy-entrypoint.sh injects the required management key at first startup.
+host: ""
+port: 8317
+
+tls:
+  enable: false
+  cert: ""
+  key: ""
+
+remote-management:
+  allow-remote: true
+  secret-key: "__CLIPROXY_MANAGEMENT_KEY__"
+  disable-control-panel: true
+
+auth-dir: "/root/.cli-proxy-api"
+# The broker requires this key on the data plane. The gateway sends the slot's
+# DataPlaneKey (falling back to its ManagementKey), so the single-secret default
+# keeps a locked-down slot working; set GEMINI_BROKER_<SLOT>_DATA_PLANE_KEY to
+# split the two planes. Empty would leave the slot's data plane open to the
+# container network — not the default.
+api-keys: ["__CLIPROXY_DATA_PLANE_KEY__"]
+debug: false

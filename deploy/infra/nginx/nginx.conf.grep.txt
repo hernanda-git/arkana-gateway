@@ -1,0 +1,10 @@
+5:include /etc/nginx/modules-enabled/*.conf;
+23:	# server_names_hash_bucket_size 64;
+24:	# server_name_in_redirect off;
+26:	include /etc/nginx/mime.types;
+33:	ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3; # Dropping SSLv3, ref: POODLE
+34:	ssl_prefer_server_ciphers on;
+59:	include /etc/nginx/conf.d/*.conf;
+60:	include /etc/nginx/sites-enabled/*;
+73:#		listen     localhost:110;
+79:#		listen     localhost:143;

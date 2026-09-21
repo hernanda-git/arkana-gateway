@@ -1,0 +1,403 @@
+@page "/logs"
+@rendermode InteractiveServer
+@using System.Text.Json
+@using Arkana.Gateway.Api.Services
+@inject DashboardService Svc
+@inject UserTimeService UserTime
+
+<PageTitle>Logs</PageTitle>
+
+<div class="section-header">
+    <h2>Request Logs</h2>
+    <div class="section-actions">
+        <span class="log-count" title="Showing recent logs">@(logs?.Count ?? 0) entries</span>
+        <button class="btn btn-sm" @onclick="Load"><Heroicon Name="arrow-path" Size="16" /> Refresh</button>
+    </div>
+</div>
+
+@* ── Filter Bar ── *@
+<div class="filter-bar">
+    <select class="filter-select" @bind="providerFilter" @bind:after="() => Load()">
+        <option value="">All Providers</option>
+        @foreach (var p in providerNames)
+        {
+            <option value="@p">@p</option>
+        }
+    </select>
+    <select class="filter-select" @bind="modelFilter" @bind:after="() => Load()">
+        <option value="">All Models</option>
+        @foreach (var m in modelNames)
+        {
+            <option value="@m">@m</option>
+        }
+    </select>
+    <select class="filter-select" @bind="apiKeyFilter" @bind:after="() => Load()">
+        <option value="">All API Keys</option>
+        @foreach (var k in apiKeyNames)
+        {
+            <option value="@k">@k</option>
+        }
+    </select>
+    <select class="filter-select" @bind="viaFilter" @bind:after="() => Load()">
+        <option value="">All Routes</option>
+        <option value="mitm">Routed via MITM (antigravity)</option>
+        <option value="direct">Direct (no MITM)</option>
+    </select>
+    <span class="search-wrap"><Heroicon Name="magnifying-glass" Size="16" /><input class="filter-search" type="text" placeholder="Search in prompts..." @bind="searchText" /></span>
+    <button class="btn btn-sm" @onclick="Load">Filter</button>
+</div>
+
+@* ── Auto-refresh info bar ── *@
+<div class="auto-refresh-bar">
+    <span><span class="live-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:#22c55e;margin-right:6px;vertical-align:middle"></span>Live — auto-refreshes every 10s</span>
+</div>
+
+@if (tenantError is not null)
+{
+    <div style="margin:8px 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--accent-red)">@tenantError</div>
+}
+
+@* ── Log Table ── *@
+<div class="table-wrap">
+    <table class="data-table log-table">
+        <thead>
+            <tr>
+                <th class="col-time">Time</th>
+                <th class="col-provider">Provider</th>
+                <th class="col-model">Model</th>
+                <th class="col-apikey">API Key</th>
+                <th class="col-via">Via</th>
+                <th class="col-tokens">Tokens</th>
+                <th class="col-cost">Cost</th>
+                <th class="col-duration">Duration</th>
+                <th class="col-status"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (logs is not null && logs.Count > 0)
+            {
+                var idx = 0;
+                @foreach (var l in logs)
+                {
+                    var isOpen = openId == l.Id;
+                    var dur = l.DurationMs;
+                    var showRow = viaFilter == ""
+                        || (viaFilter == "mitm" && !string.IsNullOrEmpty(l.ViaMitmAgent))
+                        || (viaFilter == "direct" && string.IsNullOrEmpty(l.ViaMitmAgent));
+                    if (!showRow) { idx++; continue; }
+                    <tr class="log-row @(l.IsError ? "log-error" : "")" @onclick="() => ToggleDetail(l.Id)">
+                        <td class="col-time" title="@UserTime.Format(l.Timestamp, "yyyy-MM-dd HH:mm:ss")">@UserTime.FormatShort(l.Timestamp)</td>
+                        <td class="col-provider"><span class="badge badge-amber">@l.Provider</span></td>
+                        <td class="col-model mono">@l.Model</td>
+                        <td class="col-apikey">@(l.ApiKeyName ?? "—")</td>
+                        <td class="col-via">@if (!string.IsNullOrEmpty(l.ViaMitmAgent)) { <span class="badge badge-purple" title="Routed via employee MITM agent">@l.ViaMitmAgent</span> } else { <span class="muted">—</span> }</td>
+                        <td class="col-tokens"><span class="mono">@l.TotalTokens</span></td>
+                        <td class="col-cost"><span class="mono">$@l.Cost.ToString("F6")</span></td>
+                        <td class="col-duration">@dur ms</td>
+                        <td class="col-status">
+                            @if (l.IsError)
+                            {
+                                <span class="badge badge-red" title="@l.ErrorMessage">ERROR</span>
+                            }
+                            <span class="expand-icon @(isOpen ? "open" : "")"><Heroicon Name="chevron-right" Size="14" /></span>
+                        </td>
+                    </tr>
+                    @if (isOpen)
+                    {
+                        <tr class="log-detail-row open">
+                            <td colspan="8" style="padding:0">
+                                <div class="log-detail-panel">
+                                    @* ── Section: Request Messages ── *@
+                                    <div class="detail-section">
+                                        <div class="detail-section-title"><Heroicon Name="chat-bubble-left-right" Size="16" /> Request Messages</div>
+                                        @if (l.Messages is { Count: > 0 })
+                                        {
+                                            <div class="message-list">
+                                                @foreach (var msg in l.Messages)
+                                                {
+                                                    <div class="message-entry role-@msg.Role">
+                                                        <div class="message-role-badge role-@msg.Role">
+                                                            @{
+                                                                var roleIcon = msg.Role switch
+                                                                {
+                                                                    "system" => "cog-6-tooth",
+                                                                    "user" => "user-group",
+                                                                    "assistant" => "sparkles",
+                                                                    _ => "document-text"
+                                                                };
+                                                                var roleLabel = msg.Role switch
+                                                                {
+                                                                    "system" => "System",
+                                                                    "user" => "User",
+                                                                    "assistant" => "Assistant",
+                                                                    _ => msg.Role
+                                                                };
+                                                            }
+                                                            <Heroicon Name="@roleIcon" Size="14" Class="role-badge-icon" Style="vertical-align:middle;margin-right:4px" />
+                                                            <span>@roleLabel</span>
+                                                        </div>
+                                                        <pre class="message-content"><code>@msg.Content</code></pre>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="empty-inline">No request messages captured</div>
+                                        }
+                                    </div>
+
+                                    @* ── Section: Tool Calls ── *@
+                                    @if (l.ToolCalls is { Count: > 0 })
+                                    {
+                                        <div class="detail-section">
+                                            <div class="detail-section-title"><Heroicon Name="code-bracket" Size="16" /> Tool Calls</div>
+                                            <div class="tool-call-list">
+                                                @foreach (var tc in l.ToolCalls)
+                                                {
+                                                    <div class="tool-call-entry">
+                                                        <div class="tool-call-header">
+                                                            <span class="badge badge-blue">@tc.Type</span>
+                                                            <code class="tool-fn-name">@tc.FunctionName</code>
+                                                        </div>
+                                                        <div class="tool-call-args">
+                                                            <div class="args-label">Arguments:</div>
+                                                            <pre><code>@FormatJson(tc.FunctionArguments)</code></pre>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+
+                                    @* ── Section: Response ── *@
+                                    <div class="detail-section">
+                                        <div class="detail-section-title">
+                                            <Heroicon Name="sparkles" Size="16" /> AI Response
+                                            @if (l.IsError)
+                                            {
+                                                <span class="badge badge-red" style="margin-left:8px">ERROR</span>
+                                            }
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(l.ResponseContent))
+                                        {
+                                            <div class="response-content">
+                                                <pre><code>@l.ResponseContent</code></pre>
+                                            </div>
+                                        }
+                                        @if (l.IsError && !string.IsNullOrEmpty(l.ErrorMessage))
+                                        {
+                                            <div class="error-block">
+                                                <div class="error-label">Error Message:</div>
+                                                <pre><code>@l.ErrorMessage</code></pre>
+                                            </div>
+                                        }
+                                        @if (string.IsNullOrEmpty(l.ResponseContent) && !l.IsError)
+                                        {
+                                            <div class="empty-inline">No response content</div>
+                                        }
+                                    </div>
+
+                                    @* ── Section: Metadata ── *@
+                                    <div class="detail-section">
+                                        <div class="detail-section-title"><Heroicon Name="rectangle-stack" Size="16" /> Metadata</div>
+                                        <div class="meta-grid">
+                                            <div class="meta-item">
+                                                <span class="meta-label">Request ID</span>
+                                                <span class="meta-value mono">@l.Id</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Timestamp</span>
+                                                <span class="meta-value">@UserTime.Format(l.Timestamp, "yyyy-MM-dd HH:mm:ss.fff")</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Provider</span>
+                                                <span class="meta-value">@l.Provider</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Model</span>
+                                                <span class="meta-value mono">@l.Model</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">API Key</span>
+                                                <span class="meta-value">@(l.ApiKeyName ?? "—")</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Routed Via</span>
+                                                <span class="meta-value">@(l.ViaMitmAgent ?? "direct")</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Input Tokens</span>
+                                                <span class="meta-value mono">@l.InputTokens</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Output Tokens</span>
+                                                <span class="meta-value mono">@l.OutputTokens</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Total Tokens</span>
+                                                <span class="meta-value mono">@l.TotalTokens</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Cost</span>
+                                                <span class="meta-value mono">$@l.Cost.ToString("F6")</span>
+                                            </div>
+                                            <div class="meta-item">
+                                                <span class="meta-label">Duration</span>
+                                                <span class="meta-value mono">@l.DurationMs ms</span>
+                                            </div>
+                                            @if (l.IsError)
+                                            {
+                                                <div class="meta-item error-item">
+                                                    <span class="meta-label">Error</span>
+                                                    <span class="meta-value" style="color:var(--red)">@l.ErrorMessage</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    idx++;
+                }
+            }
+            else
+            {
+                <tr>
+                    <td colspan="8">
+                        <div class="empty-state">
+                            <div class="icon"><Heroicon Name="document-text" Size="48" /></div>
+                            <p>No request logs yet.</p>
+                            <p style="font-size:12px;margin-top:6px">Send a chat request and it will appear here with full prompt and response details.</p>
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@* ── Auto-refresh timer ── *@
+@implements IDisposable
+
+@code {
+    private List<DashboardService.LogEntryView>? logs;
+    private Guid? openId;
+    private string? tenantError;
+
+    // Filters
+    private string providerFilter = "";
+    private string modelFilter = "";
+    private string apiKeyFilter = "";
+    private string viaFilter = "";
+    private string searchText = "";
+
+    // Filter dropdown data
+    private List<string> providerNames = [];
+    private List<string> modelNames = [];
+    private List<string> apiKeyNames = [];
+
+    // Auto-refresh
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadFilterData();
+        await Load();
+        _timer = new Timer(async _ => await AutoRefresh(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private async Task AutoRefresh()
+    {
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadFilterData();
+                await Load();
+                StateHasChanged();
+            });
+        }
+        catch
+        {
+            // Silently handle during auto-refresh
+        }
+    }
+
+    private async Task LoadFilterData()
+    {
+        try
+        {
+            providerNames = await Svc.GetProviderNamesAsync();
+            apiKeyNames = await Svc.GetApiKeyNamesAsync();
+            var models = await Svc.GetAllModelsAsync();
+            modelNames = models.Select(m => m.Code).Distinct().Order().ToList();
+        }
+        catch (InvalidOperationException ex) when (IsTenantRequired(ex))
+        {
+            SetTenantError();
+        }
+    }
+
+    private async Task Load()
+    {
+        try
+        {
+            // Use server-side search with PostgreSQL ILIKE for full-text search
+            logs = await Svc.SearchLogsAsync(
+                string.IsNullOrEmpty(providerFilter) ? null : providerFilter,
+                string.IsNullOrEmpty(modelFilter) ? null : modelFilter,
+                string.IsNullOrEmpty(apiKeyFilter) ? null : apiKeyFilter,
+                string.IsNullOrEmpty(searchText) ? null : searchText,
+                100);
+        }
+        catch (InvalidOperationException ex) when (IsTenantRequired(ex))
+        {
+            // Fail soft: show the reason in-page instead of an unhandled 500 /
+            // dead circuit (this is what an unauthenticated visit used to get).
+            SetTenantError();
+            return;
+        }
+
+        tenantError = null;
+
+        // Keep the same detail open if still visible
+        if (openId.HasValue && !logs.Any(l => l.Id == openId.Value))
+            openId = null;
+    }
+
+    private static bool IsTenantRequired(Exception ex)
+        => ex is InvalidOperationException
+           && ex.Message.Contains("Authenticated tenant is required", StringComparison.Ordinal);
+
+    private void SetTenantError()
+    {
+        logs = [];
+        tenantError = "Request logs need a tenant. Sign in, or set ADMIN_TENANT_ID for the open dashboard.";
+    }
+
+    private void ToggleDetail(Guid id)
+    {
+        openId = openId == id ? null : id;
+    }
+
+    private static string FormatJson(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "";
+        try
+        {
+            var doc = JsonDocument.Parse(raw);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return raw;
+        }
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+    }
+}

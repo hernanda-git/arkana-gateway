@@ -1,0 +1,14 @@
+[Unit]
+Description=Git deploy webhook receiver for AI gateway
+After=network.target
+
+[Service]
+User=deploy-user
+WorkingDirectory=/opt/deploy-hook
+EnvironmentFile=/opt/deploy-hook/env
+ExecStart=/usr/bin/python3 /opt/deploy-hook/deploy-hook.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

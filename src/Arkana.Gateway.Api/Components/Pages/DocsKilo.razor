@@ -1,0 +1,13 @@
+@page "/docs/kilo"
+@layout PublicDocsLayout
+
+<PageTitle>Pengaturan Kilo Code · ARKANA GATEWAY</PageTitle>
+
+<header class="docs-page-header"><div><span class="docs-kicker">Panduan Agent · 04</span><h1>Kilo Code</h1><p>Gunakan alur custom Provider Kilo Code untuk menghubungkan extension VS Code atau aplikasi desktop-nya ke Endpoint OpenAI-compatible milik gateway.</p></div><span class="docs-agent-mark"><Heroicon Name="wrench-screwdriver" Size="28" /></span></header>
+
+<section class="docs-prose-section"><h2>Konfigurasikan Provider</h2><p>Status Kilo Code pada halaman ini adalah conditional karena field UI dan kemampuan Tool dapat berubah antar versi extension.</p><div class="docs-steps"><div><span>01</span><strong>Buka Providers</strong><p>Buka pengaturan Kilo Code, pilih <strong>Providers</strong>, lalu buat Custom Provider.</p></div><div><span>02</span><strong>Pilih protokol</strong><p>Pilih <strong>OpenAI Compatible</strong> jika tersedia pada versi yang terpasang.</p></div><div><span>03</span><strong>Masukkan nilai Gateway</strong><p>Base URL: <code>https://gateway.arkana.dev/v1</code>. Tambahkan API key melalui Secret store dan ambil daftar model.</p></div><div><span>04</span><strong>Verifikasi Tool</strong><p>Jalankan text test, real Tool event, artifact readback, lalu periksa Gateway Logs.</p></div></div></section>
+
+<section class="docs-prose-section"><h2>Deteksi Model</h2><p>Jika versi Kilo Code menyediakan model discovery, gunakan Endpoint <code>/v1/models</code> setelah Base URL dan Secret valid. Jika discovery tidak tersedia, masukkan model ID secara manual berdasarkan catalog yang diizinkan untuk key Anda.</p><pre class="docs-code"><code>curl -fsS https://gateway.arkana.dev/v1/models \
+  -H "Authorization: Bearer YOUR_GATEWAY_API_KEY"</code></pre></section>
+
+<section class="docs-prose-section"><h2>Masalah umum</h2><div class="docs-grid docs-grid-2"><div class="docs-card"><h3>404 pada setiap request</h3><p>Pastikan base URL menyertakan <code>/v1</code>. Jangan gunakan URL dashboard.</p></div><div class="docs-card"><h3>Tool hanya dijelaskan, bukan dijalankan</h3><p>Pilih model yang mendukung tool dan pastikan opsi pemanggilan tool aktif untuk model kustom tersebut.</p></div></div></section>

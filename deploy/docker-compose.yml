@@ -1,0 +1,207 @@
+name: arkana-dev
+
+services:
+  # ── PostgreSQL ──
+  postgres:
+    image: postgres:16-alpine@sha256:1a66d744c1b459e13b05a8fca341da84cb63383e99ce262210efee5a319d4551
+    container_name: arkana-postgres
+    environment:
+      POSTGRES_DB: arkana
+      POSTGRES_USER: arkana
+      POSTGRES_PASSWORD: arkana_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arkana"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - arkana-net
+
+  # ── Redis ──
+  redis:
+    image: redis:7-alpine@sha256:1db42ccef14898aa29bae778452d567534b59c107129cbc1163fb552de184d3c
+    container_name: arkana-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - arkana-net
+
+  # ── n8n Workflow Engine ──
+  n8n:
+    image: n8nio/n8n:latest@sha256:68556a97d00ac73e14ec3ecd66c2c91259bd6fd8968e2107216fdabe772b9b48
+    container_name: arkana-n8n
+    ports:
+      - "5678:5678"
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: "5432"
+      DB_POSTGRESDB_DATABASE: arkana
+      DB_POSTGRESDB_SCHEMA: n8n
+      DB_POSTGRESDB_USER: arkana
+      DB_POSTGRESDB_PASSWORD: arkana_dev
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY is not set -- cp deploy/.env.example deploy/.env and generate one with `openssl rand -hex 32`}
+      N8N_RATE_LIMIT_ENABLED: "false"
+      N8N_METRICS: "false"
+      N8N_SECURE_COOKIE: "false"
+      N8N_EMAIL: ${N8N_EMAIL}
+      N8N_PASSWORD: ${N8N_PASSWORD}
+    volumes:
+      - n8ndata:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - arkana-net
+
+  # ── Qdrant Vector Database (AI-ARKANA-005) ──
+  qdrant:
+    image: qdrant/qdrant:latest@sha256:0699e7733a6fa7fa7f6b95dcbed84ebb04584110da525cdfdef9f305c4f57738
+    container_name: arkana-qdrant
+    ports:
+      - "16333:6333"   # REST API (host remapped; 6333 already taken by standalone qdrant)
+      - "16334:6334"   # gRPC API
+    volumes:
+      - qdrantdata:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - arkana-net
+
+  # ── Database baseline (one-shot) ──
+  # Initialises an empty database from deploy/db/baseline-schema.sql and stamps the baseline
+  # migration history, so a from-scratch install starts from the same schema as production.
+  # No-ops the moment a migration history exists, so it is safe in every environment.
+  db-baseline:
+    image: postgres:16-alpine@sha256:1a66d744c1b459e13b05a8fca341da84cb63383e99ce262210efee5a319d4551
+    container_name: ${DB_BASELINE_CONTAINER:-arkana-db-baseline}
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: arkana
+      PGUSER: arkana
+      PGPASSWORD: arkana_dev
+    volumes:
+      - ./db:/baseline:ro
+    entrypoint: ["/bin/sh", "/baseline/init-baseline.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - arkana-net
+
+  # ── AI Gateway ──
+  gateway:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: arkana-gateway
+    ports:
+      - "5011:5011"
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:5011
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=arkana;Username=arkana;Password=arkana_dev
+      N8n__BaseUrl: http://n8n:5678
+      ARKANA_MASTER_KEY: ${ARKANA_MASTER_KEY}
+      N8n__UserEmail: ${N8N_USER_EMAIL}
+      N8n__UserPassword: ${N8N_USER_PASSWORD}
+      OPENCODE_GO_API_KEY: ${OPENCODE_GO_API_KEY}
+      # ── OAuth provider secrets (set in .env) ──
+      OAUTH_GEMINI_CLIENT_ID: ${OAUTH_GEMINI_CLIENT_ID}
+      OAUTH_GEMINI_CLIENT_SECRET: ${OAUTH_GEMINI_CLIENT_SECRET}
+      # ── OpenRouter (free default upstream) ──
+      # OPENROUTER_API_KEY is a SECRET: sourced from deploy/.env (git-ignored),
+      # never committed. The OpenRouter connector reads it as an env-var
+      # fallback when the AiProviders row has no sealed key (see
+      # deploy/infra/04-provision-openrouter.sql).
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      # GATEWAY_DEFAULT_MODEL is the catalog Model.Code used when a caller
+      # omits `model`. It MUST match a row provisioned by
+      # deploy/infra/04-provision-openrouter.sql (here: a free OpenRouter
+      # Google Gemma 4 26B instruct). Hardcoded (non-secret) so a clean
+      # redeploy lands on a live upstream instead of the dead OpenCode one.
+      GATEWAY_DEFAULT_MODEL: "google/gemma-4-26b-a4b-it:free"
+      # ── Dashboard login (SEC-ARKANA-003) ──
+      # AUTH=1 turns on cookie authentication for the Blazor dashboard. The
+      # admin credential is sourced from deploy/.env (git-ignored). Rotate by
+      # editing ARKANA_ADMIN_PASSWORD in deploy/.env and recreating the gateway.
+      AUTH: "1"
+      ARKANA_ADMIN_USER: ${ARKANA_ADMIN_USER:-admin}
+      ARKANA_ADMIN_PASSWORD: ${ARKANA_ADMIN_PASSWORD:?ARKANA_ADMIN_PASSWORD is not set -- the gateway refuses to seed an admin user without it, so the dashboard would be impossible to log into. Set it in deploy/.env (see deploy/.env.example)}
+      # ── Admin management API auth (SEC-ARKANA-004, fixed 2026-08-06) ──
+      # The /admin API now requires this key (or a dashboard Admin session).
+      # Without it the surface is unreachable; a missing key fails CLOSED.
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      # ── Google OAuth 2.0 dashboard login (Authorization Code + PKCE) ──
+      # Sourced from deploy/.env (git-ignored). Set GoogleLogin__Enabled=1 and
+      # provide a Google Cloud OAuth "Web" client (redirect URI
+      # https://gateway.arkana.dev/signin-google). Empty AllowedDomains = any
+      # Google account (public). DefaultRole=User; GoogleLogin__AdminEmails (csv)
+      # grants Admin to specific addresses. Env vars use ASP.NET double-underscore
+      # nesting (GoogleLogin__*).
+      GoogleLogin__Enabled: ${GoogleLogin__Enabled:-false}
+      GoogleLogin__ClientId: ${GoogleLogin__ClientId}
+      GoogleLogin__ClientSecret: ${GoogleLogin__ClientSecret}
+      GoogleLogin__AllowedDomains: ${GoogleLogin__AllowedDomains:-}
+      GoogleLogin__DefaultRole: ${GoogleLogin__DefaultRole:-User}
+      GoogleLogin__AdminEmails: ${GoogleLogin__AdminEmails:-}
+      # ── Budget enforcement (C4, wired 2026-08-06) ──
+      # Master toggle for tenant token budgets + the auto-reset background job.
+      BudgetEnforcer__Enabled: ${BUDGET_ENFORCER_ENABLED:-false}
+      Logging__LogLevel__Microsoft.AspNetCore.Hosting: Error
+      Logging__LogLevel__Arkana.Infrastructure.Security: Error
+      Logging__LogLevel__Microsoft.EntityFrameworkCore.Query: Error
+      Logging__LogLevel__LuckyPennySoftware.MediatR: Error
+      SemanticCache__Enabled: "true"
+      SemanticCache__QdrantHost: qdrant
+      SemanticCache__QdrantPort: "6334"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "1"
+    volumes:
+      - dataprotection:/root/.aspnet/DataProtection-Keys
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-baseline:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      n8n:
+        condition: service_started
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - arkana-net
+
+volumes:
+  pgdata:
+  redisdata:
+  n8ndata:
+  dataprotection:
+  qdrantdata:
+
+networks:
+  arkana-net:
+    driver: bridge

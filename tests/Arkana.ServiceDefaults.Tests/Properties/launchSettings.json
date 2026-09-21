@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Arkana.ServiceDefaults.Tests": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:62887;http://localhost:62888"
+    }
+  }
+}

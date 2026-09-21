@@ -1,0 +1,125 @@
+@page "/privacy"
+@model Arkana.Gateway.Api.Pages.PrivacyModel
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy — ARKANA GATEWAY</title>
+    <style>
+        :root {
+            --bg: #FDFAF6;
+            --card-bg: #ffffff;
+            --border: #e7e2db;
+            --text: #1a1614;
+            --text-muted: #6b655f;
+            --accent: #E56A4A;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            color: var(--text);
+            line-height: 1.6;
+        }
+        .wrap {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 48px 24px 80px;
+        }
+        h1 { font-size: 28px; margin: 0 0 4px; }
+        h2 { font-size: 18px; margin: 32px 0 8px; color: var(--accent); }
+        p, li { font-size: 15px; color: var(--text-muted); }
+        .updated { font-size: 13px; color: #a8a29e; margin-bottom: 24px; }
+        a { color: var(--accent); }
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 32px 36px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.05);
+        }
+        ul { padding-left: 20px; }
+        li { margin-bottom: 6px; }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="card">
+            <h1>Privacy Policy</h1>
+            <div class="updated">ARKANA GATEWAY &middot; Last updated: 2026-08-20</div>
+
+            <p>
+                This Privacy Policy explains how the <strong>ARKANA GATEWAY</strong>
+                ("the Service", "we") collects, uses, and protects information when
+                you connect a Google account or use the Service. The Service is
+                operated by the Arkana project and is hosted at
+                <a href="https://gateway.arkana.dev">gateway.arkana.dev</a>.
+            </p>
+
+            <h2>1. Information We Collect</h2>
+            <ul>
+                <li>
+                    <strong>Account identity.</strong> When you sign in with Google,
+                    we receive your Google account email address and basic profile
+                    (name, picture) as provided by Google's OpenID Connect.
+                </li>
+                <li>
+                    <strong>OAuth tokens.</strong> When you connect a Google / Gemini
+                    subscription, we store the OAuth access and refresh tokens needed
+                    to act on your behalf for the scopes you authorized
+                    (<code>generative-language</code> and OpenID). These are encrypted
+                    at rest.
+                </li>
+                <li>
+                    <strong>Usage metadata.</strong> We log request timestamps,
+                    token usage, model names, and provider routing for billing and
+                    operational purposes. Message content sent to AI providers is
+                    forwarded to the selected provider to fulfill your request.
+                </li>
+            </ul>
+
+            <h2>2. How We Use Information</h2>
+            <ul>
+                <li>To authenticate you and maintain your signed-in session.</li>
+                <li>To route your requests to the AI provider you connected and to
+                    meter usage against your tenant budget.</li>
+                <li>To diagnose and improve the Service.</li>
+            </ul>
+
+            <h2>3. Third-Party Providers</h2>
+            <p>
+                When you connect Google / Gemini, your requests and the authorized
+                tokens are sent to Google LLC under their terms and privacy policy.
+                We do not sell your data. We share only what is necessary to fulfill
+                the request you initiated.
+            </p>
+
+            <h2>4. Data Retention</h2>
+            <p>
+                OAuth tokens are retained until you disconnect the provider or delete
+                your account. Usage logs are retained for operational and billing
+                purposes and removed on a rolling basis.
+            </p>
+
+            <h2>5. Your Rights</h2>
+            <p>
+                You may disconnect any connected provider at any time from the
+                dashboard, which revokes and deletes the stored tokens. For data
+                access or deletion requests, contact the administrator.
+            </p>
+
+            <h2>6. Contact</h2>
+            <p>
+                Questions about this policy can be directed to the service
+                administrator at
+                <a href="mailto:deploy-user@arkana.dev">deploy-user@arkana.dev</a>.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

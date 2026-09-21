@@ -1,0 +1,24 @@
+@using Microsoft.AspNetCore.Components.Routing
+@using Arkana.Gateway.Api.Components.Pages
+
+<Router AppAssembly="@typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+            <NotAuthorized>
+                <RedirectToLogin />
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>Not Found</PageTitle>
+        <LayoutView Layout="@typeof(MainLayout)">
+            <div class="empty-state">
+                <div class="icon">
+                    <Heroicon Name="exclamation-triangle" Size="40" />
+                </div>
+                <p>Page not found</p>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

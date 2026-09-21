@@ -1,0 +1,20 @@
+@page "/docs/hermes"
+@layout PublicDocsLayout
+<PageTitle>Hermes Agent · ARKANA GATEWAY</PageTitle>
+<header class="docs-page-header"><div><span class="docs-kicker">Panduan Agent · Hermes</span><h1>Hermes Agent</h1><p>Hermes Agent mendukung custom endpoint OpenAI-compatible melalui model wizard atau config.yaml.</p></div><span class="docs-agent-mark"><Heroicon Name="sparkles" Size="28" /></span></header>
+<section class="docs-prose-section"><h2>Status integrasi</h2><p><span class="badge">Conditional</span> Hermes mendukung custom endpoint, tetapi Tool Gateway dan Browser Tool Hermes memiliki capability terpisah dari model API ARKANA GATEWAY.</p></section>
+<section class="docs-prose-section"><h2>Setup melalui wizard</h2><pre class="docs-code"><code>hermes model
+# Pilih: Custom endpoint
+# Base URL: https://gateway.arkana.dev/v1
+# API key: gunakan Secret input
+# Model: gpt-5.5
+
+hermes</code></pre></section>
+<section class="docs-prose-section"><h2>Setup melalui config.yaml</h2><pre class="docs-code"><code>model:
+  default: gpt-5.5
+  provider: custom
+  base_url: https://gateway.arkana.dev/v1
+  api_key: ${GATEWAY_API_KEY}
+  context_length: 128000</code></pre><p>Simpan file di konfigurasi Hermes yang berlaku pada installation Anda. Secret dapat diletakkan di environment atau file secret lokal yang tidak di-commit.</p></section>
+<section class="docs-prose-section"><h2>Verification</h2><ol class="docs-list"><li>Jalankan text marker.</li><li>Jalankan shell Tool dan buat artifact.</li><li>Baca artifact kembali.</li><li>Periksa Gateway Logs.</li><li>Catat capability auxiliary Hermes secara terpisah.</li></ol></section>
+<section class="docs-callout"><Heroicon Name="arrow-top-right-on-square" Size="21" /><div><strong>Referensi resmi Hermes</strong><p><a href="https://github.com/NousResearch/hermes-agent">Repository</a> · <a href="https://hermes-agent.nousresearch.com/docs/integrations/providers">AI Providers</a></p></div></section>

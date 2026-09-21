@@ -1,0 +1,9 @@
+@page "/docs/litellm"
+@layout PublicDocsLayout
+<PageTitle>LiteLLM · ARKANA GATEWAY</PageTitle>
+<header class="docs-page-header"><div><span class="docs-kicker">Panduan Client · LiteLLM</span><h1>LiteLLM</h1><p>Gunakan ARKANA GATEWAY sebagai upstream OpenAI-compatible untuk LiteLLM atau client yang melewati LiteLLM.</p></div><span class="docs-agent-mark"><Heroicon Name="arrows-right-left" Size="28" /></span></header>
+<section class="docs-prose-section"><h2>Upstream contract</h2><pre class="docs-code"><code>model: gpt-5.5
+api_base: https://gateway.arkana.dev/v1
+api_key: os.environ/GATEWAY_API_KEY</code></pre></section>
+<section class="docs-prose-section"><h2>Status</h2><p><span class="badge">Conditional</span> Pastikan LiteLLM meneruskan Authorization header dan path API tanpa memindahkan key ke query string. Verifikasi Models, text, streaming, lalu Tool loop.</p></section>
+<section class="docs-prose-section"><h2>Acceptance test</h2><ol class="docs-list"><li>Request <code>/v1/models</code> sukses.</li><li>Text marker sukses.</li><li>Streaming selesai tanpa disconnect.</li><li>Tool event dan artifact readback sukses.</li><li>Gateway Logs menampilkan Provider dan Model yang benar.</li></ol></section>

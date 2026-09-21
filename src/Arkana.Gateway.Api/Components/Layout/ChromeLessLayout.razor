@@ -1,0 +1,23 @@
+@inherits LayoutComponentBase
+
+<!-- Full-page layout for Google-login users. The page keeps the dashboard chrome
+     hidden, but provides the full viewport for profile, access, usage, and logs. -->
+<div class="chrome-less">
+    @Body
+</div>
+
+<style>
+    .chrome-less {
+        --profile-surface: #fff;
+        --profile-subtle: #fdfaf6;
+        --profile-border: #e7e2db;
+        --profile-text: #1a1614;
+        --profile-muted: #756e68;
+        min-height: 100vh;
+        width: 100%;
+        background: #f7f3ee;
+        color: var(--profile-text);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        box-sizing: border-box;
+    }
+</style>

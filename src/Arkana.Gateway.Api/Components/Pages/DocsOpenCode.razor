@@ -1,0 +1,36 @@
+@page "/docs/opencode"
+@layout PublicDocsLayout
+
+<PageTitle>Pengaturan OpenCode · ARKANA GATEWAY</PageTitle>
+
+<header class="docs-page-header"><div><span class="docs-kicker">Panduan Agent · 02</span><h1>OpenCode</h1><p>Konfigurasikan Provider OpenAI-compatible bernama di konfigurasi JSONC OpenCode, lalu pilih model gateway dengan pola <code>provider/model</code>.</p></div><span class="docs-agent-mark"><Heroicon Name="command-line" Size="28" /></span></header>
+
+<section class="docs-prose-section"><h2>Konfigurasi</h2><p>Letakkan konfigurasi ini di <code>opencode.jsonc</code> global atau konfigurasi project. Skema provider OpenCode saat ini menggunakan <code>providers</code>, <code>package</code>, dan <code>settings.baseURL</code>.</p><pre class="docs-code"><code>{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "arkana-gateway/gpt-5.5",
+  "providers": {
+    "arkana-gateway": {
+      "name": "ARKANA GATEWAY",
+      "env": ["GATEWAY_API_KEY"],
+      "package": "@@opencode-ai/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "https://gateway.arkana.dev/v1"
+      },
+      "models": {
+        "gpt-5.5": { "name": "GPT-5.5" }
+      }
+    }
+  }
+}</code></pre><p class="docs-note">Di Windows, file global biasanya berada di <code>%USERPROFILE%\.config\opencode\opencode.jsonc</code>. Simpan <code>GATEWAY_API_KEY</code> di luar file jika file akan dibagikan atau di-commit.</p></section>
+
+<section class="docs-prose-section"><h2>Verifikasi Provider</h2><pre class="docs-code"><code># POSIX
+export GATEWAY_API_KEY="YOUR_GATEWAY_API_KEY"
+opencode models
+
+# Pemeriksaan langsung ke Gateway
+curl -fsS https://gateway.arkana.dev/v1/models \
+  -H "Authorization: Bearer YOUR_GATEWAY_API_KEY"</code></pre><p class="docs-note">Jangan menaruh nilai API key asli di command history, repository, screenshot, atau report.</p></section>
+
+<section class="docs-prose-section"><h2>Catatan versi konfigurasi</h2><p>Schema pada contoh ini adalah schema yang digunakan pada versi OpenCode yang diverifikasi. OpenCode versi lama dapat menggunakan schema legacy <code>provider</code>, <code>npm</code>, dan <code>options</code>. Jangan mencampur kedua schema. Cocokkan field dengan versi OpenCode yang terpasang.</p></section>
+
+<section class="docs-prose-section"><h2>Tool dan streaming</h2><div class="docs-grid docs-grid-2"><div class="docs-card"><h3>Pemanggilan Tool</h3><p>OpenCode mengirim <code>tools</code> dan <code>tool_choice</code> melalui Provider yang kompatibel. Text dan Tool request OpenCode sudah verified melalui production Gateway dengan Provider <code>arkana-gateway</code> dan model <code>gpt-5.5</code>.</p></div><div class="docs-card"><h3>Streaming</h3><p>Gunakan jalur streaming bawaan untuk pekerjaan interaktif. Gateway mengirim SSE delta, usage, finish reason, dan frame penutup sesuai client.</p></div></div><p class="docs-note">Acceptance test tetap harus memeriksa real Tool event, artifact readback, dan Gateway Logs. Jangan menerima kalimat assistant sebagai bukti Tool.</p></section>

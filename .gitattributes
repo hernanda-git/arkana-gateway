@@ -1,0 +1,4 @@
+deploy/gemini-broker/antigravity-https-callback.patch -text -whitespace
+deploy/gemini-broker/*.sh -text -whitespace
+deploy/gemini-broker/config.template.yaml -text
+Dockerfile text eol=lf

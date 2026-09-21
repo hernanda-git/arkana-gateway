@@ -1,0 +1,25 @@
+@page "/docs/openclaw"
+@layout PublicDocsLayout
+<PageTitle>OpenClaw · ARKANA GATEWAY</PageTitle>
+<header class="docs-page-header"><div><span class="docs-kicker">Panduan Agent · OpenClaw</span><h1>OpenClaw</h1><p>OpenClaw memiliki model provider configuration melalui models.providers dan model reference dengan pola provider/model.</p></div><span class="docs-agent-mark"><Heroicon Name="bolt" Size="28" /></span></header>
+<section class="docs-prose-section"><h2>Status integrasi</h2><p><span class="badge">Conditional</span> OpenClaw mendukung custom/base URL provider, tetapi schema dan capability dapat berbeda antar release. Contoh di bawah harus dicocokkan dengan documentation OpenClaw yang terpasang.</p></section>
+<section class="docs-prose-section"><h2>Provider contract</h2><pre class="docs-code"><code>Provider id: arkana-gateway
+API: openai-completions
+Base URL: https://gateway.arkana.dev/v1
+API key: Secret store atau environment
+Model: gpt-5.5
+Model reference: arkana-gateway/gpt-5.5</code></pre></section>
+<section class="docs-prose-section"><h2>Configuration concept</h2><pre class="docs-code"><code>{
+  "models": {
+    "providers": {
+      "arkana-gateway": {
+        "api": "openai-completions",
+        "baseUrl": "https://gateway.arkana.dev/v1",
+        "apiKey": "${GATEWAY_API_KEY}",
+        "models": [{ "id": "gpt-5.5", "name": "GPT-5.5" }]
+      }
+    }
+  }
+}</code></pre><p>Gunakan schema final dari versi OpenClaw yang terpasang. Jangan menganggap env-var shortcut dari fork atau pull request sebagai fitur official release.</p></section>
+<section class="docs-prose-section"><h2>Verification</h2><ol class="docs-list"><li>Jalankan <code>openclaw models list</code>.</li><li>Set model dengan format provider/model.</li><li>Uji text marker.</li><li>Uji Tool event dan artifact readback.</li><li>Periksa Gateway Logs.</li></ol></section>
+<section class="docs-callout"><Heroicon Name="arrow-top-right-on-square" Size="21" /><div><strong>Referensi OpenClaw</strong><p><a href="https://docs.openclaw.ai/concepts/model-providers">Model providers</a> · <a href="https://docs.openclaw.ai/providers/openai">OpenAI provider</a></p></div></section>

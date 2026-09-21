@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <!-- Coverlet code coverage configuration -->
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <!-- Exclude auto-generated files from coverage -->
+          <ExcludeByFile>
+            **/Migrations/*.cs
+          </ExcludeByFile>
+          <!-- Exclude types that are not meaningful to test:
+               - Auto-generated OpenApi support code (compiled into Arkana.Gateway.Api)
+               - Arkana.AppHost: hosting project (entry point)
+               - Blazor UI components (Pages, Layout): UI code, requires bunit testing
+               - Program: top-level statements entry point -->
+          <Exclude>
+            [Arkana.Gateway.Api]Microsoft.AspNetCore.OpenApi.Generated.*,
+            [Arkana.AppHost]*,
+            [Arkana.Gateway.Api]Arkana.Gateway.Api.Components.Pages.*,
+            [Arkana.Gateway.Api]Arkana.Gateway.Api.Components.Layout.*,
+            [Arkana.Gateway.Api]Program
+          </Exclude>
+          <!-- Include only the source assemblies we care about -->
+          <Include>
+            [Arkana.Domain]*,
+            [Arkana.Application]*,
+            [Arkana.Infrastructure]*,
+            [Arkana.Gateway.Api]*,
+            [Arkana.ServiceDefaults]*
+          </Include>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

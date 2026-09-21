@@ -1,0 +1,524 @@
+@page "/key-pools"
+@rendermode InteractiveServer
+@using Arkana.Gateway.Api.Services
+@inject UserTimeService UserTime
+@inject IJSRuntime Js
+
+<PageTitle>Key Pools</PageTitle>
+
+<div class="section-header">
+    <h2>API Key Pools</h2>
+    <div style="display:flex;gap:8px">
+        <button class="btn" @onclick="LoadData" disabled="@loading">
+            @if (loading) { <span>Loading...</span> }
+            else { <span><span class="material-symbols-outlined">refresh</span> Refresh</span> }
+        </button>
+        <button class="btn btn-primary" @onclick="OpenCreatePool">+ New Pool</button>
+    </div>
+</div>
+
+@if (message is not null)
+{
+    <div style="padding:10px 16px;margin-bottom:12px;background:var(--accent-light);border-radius:var(--radius-sm);font-size:13px;display:flex;align-items:center;gap:8px">
+        <span>@message</span>
+        <button class="btn-icon" @onclick="() => message = null" style="margin-left:auto;flex-shrink:0"><span class="material-symbols-outlined">close</span></button>
+    </div>
+}
+
+@if (pools is null)
+{
+    <div class="empty-state"><div class="icon">⏳</div><p>Loading key pools...</p></div>
+}
+else if (pools.Count == 0)
+{
+    <div class="empty-state">
+        <div class="icon"><span class="material-symbols-outlined">key</span></div>
+        <p>No key pools configured.</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:4px">Create a pool to enable round-robin rotation across multiple API keys.</p>
+    </div>
+}
+else
+{
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr><th>Provider</th><th>Keys</th><th>Active</th><th>Rotation</th><th>Requests</th><th>429s</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var p in pools)
+                {
+                    <tr>
+                        <td style="font-weight:500">
+                            <span class="mono">@p.ProviderCode</span>
+                            <span style="color:var(--text-muted);font-size:12px;margin-left:4px">@p.ProviderName</span>
+                        </td>
+                        <td><span class="badge badge-gray">@p.TotalKeys</span></td>
+                        <td><span class="badge badge-green">@p.ActiveKeys</span></td>
+                        <td><span class="mono" style="font-size:12px">#@p.ActiveIndex</span></td>
+                        <td style="font-size:13px">@p.TotalRequests.ToString("N0")</td>
+                        <td>
+                            @if (p.TotalRateLimits > 0)
+                            {
+                                <span style="color:var(--amber);font-size:13px">@p.TotalRateLimits.ToString("N0")</span>
+                            }
+                            else
+                            {
+                                <span style="color:var(--text-muted);font-size:13px">0</span>
+                            }
+                        </td>
+                        <td>
+                            <span class="badge @(p.IsActive ? "badge-green" : "badge-gray")">
+                                <span class="badge-dot @(p.IsActive ? "badge-dot-green" : "badge-dot-gray")"></span>
+                                @(p.IsActive ? "On" : "Off")
+                            </span>
+                        </td>
+                        <td style="text-align:right;white-space:nowrap">
+                            <button class="btn-icon" @onclick="() => OpenDetail(p)" title="Manage Keys" style="margin-right:4px">
+                                <Heroicon Name="bars-3" Size="14" />
+                            </button>
+                            <button class="btn-icon" @onclick="() => ResetRotation(p.Id)" title="Reset Rotation" style="margin-right:4px">
+                                <Heroicon Name="arrow-path" Size="14" />
+                            </button>
+                            <button class="btn-icon btn-danger" @onclick="() => DeletePool(p.Id, p.ProviderName)" title="Delete Pool">
+                                <Heroicon Name="trash" Size="14" />
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@* ── Create Pool Modal ───────────────────────────────────── *@
+<Modal Show="@showCreatePool" Title="Create Key Pool" Icon="key" Size="ModalSize.Default" OnClose="CloseCreatePool">
+    <Body>
+        <div class="form-group">
+            <label>Provider</label>
+            <select @bind="createProviderId">
+                <option value="">Select a provider...</option>
+                @if (availableProviders is not null)
+                {
+                    @foreach (var p in availableProviders.Where(p => !p.HasPool))
+                    {
+                        <option value="@p.Id">@p.Name (@p.Code)</option>
+                    }
+                }
+            </select>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:8px">
+            A key pool enables round-robin rotation across multiple API keys for a single provider.
+        </p>
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseCreatePool">Cancel</button>
+        <button class="btn btn-primary" @onclick="SubmitCreatePool" disabled="@(string.IsNullOrEmpty(createProviderId))">Create Pool</button>
+    </Footer>
+</Modal>
+
+@* ── Key Detail Modal ────────────────────────────────────── *@
+<Modal Show="@showDetail" Title="@($"Keys: {detailPool?.ProviderName} ({detailPool?.ProviderCode})")" Icon="key" Size="ModalSize.Wide" OnClose="CloseDetail">
+    <Body>
+        @* Pool Stats *@
+        <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
+            <div style="text-align:center;padding:8px 16px;background:var(--bg-secondary);border-radius:var(--radius-sm)">
+                <div style="font-size:20px;font-weight:600;color:var(--primary)">@detailPool!.ActiveKeys</div>
+                <div style="font-size:11px;color:var(--text-muted)">Active Keys</div>
+            </div>
+            <div style="text-align:center;padding:8px 16px;background:var(--bg-secondary);border-radius:var(--radius-sm)">
+                <div style="font-size:20px;font-weight:600">@detailPool.TotalRequests.ToString("N0")</div>
+                <div style="font-size:11px;color:var(--text-muted)">Total Requests</div>
+            </div>
+            <div style="text-align:center;padding:8px 16px;background:var(--bg-secondary);border-radius:var(--radius-sm)">
+                <div style="font-size:20px;font-weight:600;color:var(--amber)">#@detailPool.ActiveIndex</div>
+                <div style="font-size:11px;color:var(--text-muted)">Rotation Index</div>
+            </div>
+        </div>
+
+        @* Key List *@
+        @if (detailEntries is not null && detailEntries.Count > 0)
+        {
+            <table class="data-table" style="margin-bottom:16px">
+                <thead>
+                    <tr><th>Label</th><th>Priority</th><th>Models</th><th>Requests</th><th>429s</th><th>Status</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var e in detailEntries)
+                    {
+                        <tr>
+                            <td style="font-weight:500">
+                                <span class="mono" style="font-size:13px">@e.Label</span>
+                                @if (e.IsPermanentlyDisabled)
+                                {
+                                    <span class="badge badge-red" style="margin-left:6px;font-size:10px">DEAD</span>
+                                }
+                            </td>
+                            <td><span class="mono" style="font-size:12px">@e.Priority</span></td>
+                            <td>
+                                @if (e.AllowedModels is not null && e.AllowedModels.Length > 0)
+                                {
+                                    @foreach (var m in e.AllowedModels)
+                                    {
+                                        <span class="badge badge-gray" style="margin:1px;font-size:10px">@m</span>
+                                    }
+                                }
+                                else
+                                {
+                                    <span style="font-size:11px;color:var(--text-muted)">All models</span>
+                                }
+                            </td>
+                            <td style="font-size:13px">@e.RequestCount.ToString("N0")</td>
+                            <td>
+                                @if (e.RateLimitCount > 0)
+                                {
+                                    <span style="color:var(--amber);font-size:13px">@e.RateLimitCount</span>
+                                }
+                                else
+                                {
+                                    <span style="font-size:13px">0</span>
+                                }
+                            </td>
+                            <td>
+                                @if (e.IsPermanentlyDisabled)
+                                {
+                                    <span class="badge badge-red"><span class="badge-dot badge-dot-red"></span> Disabled</span>
+                                }
+                                else if (e.IsInCooldown)
+                                {
+                                    <span class="badge badge-amber"><span class="badge-dot badge-dot-amber"></span> Cooldown</span>
+                                }
+                                else if (e.IsActive)
+                                {
+                                    <span class="badge badge-green"><span class="badge-dot badge-dot-green"></span> Active</span>
+                                }
+                                else
+                                {
+                                    <span class="badge badge-gray"><span class="badge-dot badge-dot-gray"></span> Inactive</span>
+                                }
+                            </td>
+                            <td style="text-align:right;white-space:nowrap">
+                                <button class="btn-icon" @onclick="() => OpenEditModels(e)" title="Edit Models" style="margin-right:4px">
+                                    <Heroicon Name="bars-3" Size="14" />
+                                </button>
+                                <label class="toggle" style="vertical-align:middle">
+                                    <input type="checkbox" checked="@e.IsActive" @onchange="() => ToggleEntry(e.Id)" />
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <button class="btn-icon btn-danger" @onclick="() => RemoveEntry(e.Id, e.Label)" title="Remove" style="margin-left:8px">
+                                    <Heroicon Name="trash" Size="14" />
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px">No keys in this pool.</p>
+        }
+
+        <hr style="border:none;border-top:1px solid var(--border);margin-bottom:16px" />
+
+        @* Add Key Form *@
+        <h3 style="font-size:13px;font-weight:600;margin-bottom:8px">Add Key</h3>
+        <div class="form-row">
+            <div class="form-group" style="flex:2">
+                <label>API Key</label>
+                <input type="password" @bind="newKeyPlaintext" @bind:event="oninput" placeholder="sk-proj-..." />
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Label</label>
+                <input type="text" @bind="newKeyLabel" @bind:event="oninput" placeholder="key_0" />
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group" style="flex:1">
+                <label>Priority</label>
+                <input type="number" @bind="newKeyPriority" min="0" max="100" />
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Cooldown (sec)</label>
+                <input type="number" @bind="newKeyCooldown" min="10" max="3600" />
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Allowed Models <span style="font-size:11px;color:var(--text-muted)">(comma-separated, blank = all)</span></label>
+            <input type="text" @bind="newKeyModels" placeholder="gpt-5.4-mini, gpt-4o" />
+        </div>
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseDetail">Done</button>
+        <button class="btn btn-primary" @onclick="SubmitAddKey" disabled="@(string.IsNullOrWhiteSpace(newKeyPlaintext) || string.IsNullOrWhiteSpace(newKeyLabel))">+ Add Key</button>
+    </Footer>
+</Modal>
+
+@* ── Edit Models Modal ────────────────────────────────────── *@
+<Modal Show="@showEditModels" Title="@($"Models: {editModelsLabel}")" Icon="bars-3" Size="ModalSize.Small" OnClose="CloseEditModels">
+    <Body>
+        <div class="form-group">
+            <label>Allowed Models</label>
+            <p style="font-size:12px;color:var(--text-muted);margin:0 0 8px">Comma-separated model codes. Leave blank for all models.</p>
+            <input type="text" @bind="editModelsValue" placeholder="gpt-5.4-mini, gpt-4o" />
+        </div>
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseEditModels">Cancel</button>
+        <button class="btn btn-primary" @onclick="SubmitEditModels">Save</button>
+    </Footer>
+</Modal>
+
+@* ── Delete / Remove Confirmations ───────────────────────── *@
+<ConfirmDialog Show="@showDeletePool" Title="Delete Key Pool" Icon="trash"
+               Message="@($"Delete key pool '{_deletingPoolName}'? All keys in it will be removed. This cannot be undone.")"
+               ConfirmText="Delete" ConfirmClass="btn-danger" OnConfirm="DeletePoolConfirmed" OnCancel="CloseDeletePool" />
+
+<ConfirmDialog Show="@showRemoveEntry" Title="Remove Key" Icon="trash"
+               Message="@($"Remove key '{_removingEntryLabel}' from this pool? This cannot be undone.")"
+               ConfirmText="Remove" ConfirmClass="btn-danger" OnConfirm="RemoveEntryConfirmed" OnCancel="CloseRemoveEntry" />
+
+<ConfirmDialog Show="@showResetRotation" Title="Reset Rotation" Icon="arrow-path"
+               Message="Reset the rotation index to 0 for this key pool?"
+               ConfirmText="Reset" ConfirmClass="btn-primary" OnConfirm="ResetRotationConfirmed" OnCancel="CloseResetRotation" />
+
+@code {
+    private List<DashboardService.KeyPoolView>? pools;
+    private bool loading;
+    private string? message;
+
+    // Create pool modal
+    private bool showCreatePool;
+    private string createProviderId = "";
+    private List<ProviderOption>? availableProviders;
+
+    // Detail modal
+    private bool showDetail;
+    private DashboardService.KeyPoolView? detailPool;
+    private List<DashboardService.KeyPoolEntryView>? detailEntries;
+    private string newKeyPlaintext = "";
+    private string newKeyLabel = "";
+    private int newKeyPriority;
+    private int newKeyCooldown = 60;
+    private string newKeyModels = "";
+
+    // Edit models modal
+    private bool showEditModels;
+    private Guid editModelsEntryId;
+    private string editModelsLabel = "";
+    private string editModelsValue = "";
+
+    // Delete / remove / reset confirms
+    private bool showDeletePool;
+    private Guid deletePoolId;
+    private string _deletingPoolName = "";
+    private bool showRemoveEntry;
+    private Guid removeEntryId;
+    private string _removingEntryLabel = "";
+    private bool showResetRotation;
+    private Guid resetRotationPoolId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        loading = true;
+        try
+        {
+            var tenantId = Guid.Empty; // Default tenant
+            pools = await Svc.GetKeyPoolsAsync(tenantId);
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    // ── Create Pool ──────────────────────────────────────────
+    private async Task OpenCreatePool()
+    {
+        showCreatePool = true;
+        createProviderId = "";
+
+        var allProviders = await Svc.GetProvidersAsync();
+        var existingPoolProviderIds = pools?.Select(p => p.AiProviderId).ToHashSet() ?? [];
+        availableProviders = allProviders.Select(p => new ProviderOption(p.Id, p.Name, p.Code, existingPoolProviderIds.Contains(p.Id))).ToList();
+    }
+
+    private void CloseCreatePool() { showCreatePool = false; }
+
+    private async Task SubmitCreatePool()
+    {
+        if (string.IsNullOrEmpty(createProviderId)) return;
+        if (!Guid.TryParse(createProviderId, out var providerId)) return;
+
+        var tenantId = Guid.Empty;
+        var result = await Svc.CreateKeyPoolAsync(providerId, tenantId);
+        if (result is null)
+        {
+            message = "A pool already exists for this provider.";
+        }
+        else
+        {
+            message = $"Pool created for {result.ProviderName}.";
+        }
+        showCreatePool = false;
+        await LoadData();
+    }
+
+    // ── Detail ───────────────────────────────────────────────
+    private async Task OpenDetail(DashboardService.KeyPoolView pool)
+    {
+        detailPool = pool;
+        showDetail = true;
+        newKeyPlaintext = "";
+        newKeyLabel = "";
+        newKeyPriority = 0;
+        newKeyCooldown = 60;
+        newKeyModels = "";
+        await RefreshDetail();
+    }
+
+    private async Task RefreshDetail()
+    {
+        if (detailPool is null) return;
+        var result = await Svc.GetKeyPoolDetailAsync(detailPool.Id);
+        if (result is not null)
+        {
+            detailPool = result.Value.Pool;
+            detailEntries = result.Value.Entries;
+        }
+    }
+
+    private void CloseDetail() { showDetail = false; }
+
+    private async Task SubmitAddKey()
+    {
+        if (string.IsNullOrWhiteSpace(newKeyPlaintext) || string.IsNullOrWhiteSpace(newKeyLabel)) return;
+        if (detailPool is null) return;
+
+        string[]? models = null;
+        if (!string.IsNullOrWhiteSpace(newKeyModels))
+        {
+            models = newKeyModels.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
+
+        var result = await Svc.AddKeyToPoolAsync(detailPool.Id, newKeyPlaintext, newKeyLabel.Trim(), newKeyPriority, newKeyCooldown, models);
+        if (result is not null)
+        {
+            message = $"Key \"{result.Label}\" added to pool.";
+            newKeyPlaintext = "";
+            newKeyLabel = "";
+            newKeyPriority = 0;
+            newKeyCooldown = 60;
+            newKeyModels = "";
+            await RefreshDetail();
+            await LoadData();
+        }
+    }
+
+    private async Task ToggleEntry(Guid entryId)
+    {
+        if (detailPool is null) return;
+        await Svc.TogglePoolKeyAsync(detailPool.Id, entryId);
+        await RefreshDetail();
+        await LoadData();
+    }
+
+    private void RemoveEntry(Guid entryId, string label)
+    {
+        if (detailPool is null) return;
+        removeEntryId = entryId;
+        _removingEntryLabel = label;
+        showRemoveEntry = true;
+    }
+
+    private async Task RemoveEntryConfirmed()
+    {
+        if (detailPool is null) return;
+        await Svc.RemoveKeyFromPoolAsync(detailPool.Id, removeEntryId);
+        showRemoveEntry = false;
+        message = $"Key \"{_removingEntryLabel}\" removed.";
+        await RefreshDetail();
+        await LoadData();
+    }
+
+    private void CloseRemoveEntry()
+    {
+        showRemoveEntry = false;
+    }
+
+    // ── Edit Models ──────────────────────────────────────────
+    private void OpenEditModels(DashboardService.KeyPoolEntryView entry)
+    {
+        showEditModels = true;
+        editModelsEntryId = entry.Id;
+        editModelsLabel = entry.Label;
+        editModelsValue = entry.AllowedModels is not null ? string.Join(", ", entry.AllowedModels) : "";
+    }
+
+    private void CloseEditModels() { showEditModels = false; }
+
+    private async Task SubmitEditModels()
+    {
+        if (detailPool is null) return;
+
+        string[]? models = null;
+        if (!string.IsNullOrWhiteSpace(editModelsValue))
+        {
+            models = editModelsValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
+
+        await Svc.UpdatePoolKeyModelsAsync(detailPool.Id, editModelsEntryId, models);
+        showEditModels = false;
+        message = "Models updated.";
+        await RefreshDetail();
+    }
+
+    // ── Reset Rotation ───────────────────────────────────────
+    private void ResetRotation(Guid poolId)
+    {
+        resetRotationPoolId = poolId;
+        showResetRotation = true;
+    }
+
+    private async Task ResetRotationConfirmed()
+    {
+        await Svc.ResetPoolRotationAsync(resetRotationPoolId);
+        showResetRotation = false;
+        message = "Rotation index reset.";
+        await LoadData();
+    }
+
+    private void CloseResetRotation()
+    {
+        showResetRotation = false;
+    }
+
+    // ── Delete Pool ──────────────────────────────────────────
+    private void DeletePool(Guid poolId, string providerName)
+    {
+        deletePoolId = poolId;
+        _deletingPoolName = providerName;
+        showDeletePool = true;
+    }
+
+    private async Task DeletePoolConfirmed()
+    {
+        await Svc.DeleteKeyPoolAsync(deletePoolId);
+        showDeletePool = false;
+        message = $"Pool for {_deletingPoolName} deleted.";
+        await LoadData();
+    }
+
+    private void CloseDeletePool()
+    {
+        showDeletePool = false;
+    }
+
+    private sealed record ProviderOption(Guid Id, string Name, string Code, bool HasPool);
+
+    [Inject] private DashboardService Svc { get; set; } = default!;
+}

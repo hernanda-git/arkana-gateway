@@ -1,0 +1,1072 @@
+@page "/profile"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@layout ChromeLessLayout
+@attribute [Authorize]
+@implements IDisposable
+@using Arkana.Domain.Interfaces
+@using Arkana.Gateway.Api.Services
+@using Arkana.Gateway.Api.Endpoints
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IDashboardUserRepository DashboardUsers
+@inject ITenantProvider TenantProvider
+@inject DashboardService Dashboard
+@inject UserTimeService UserTime
+
+<PageTitle>Profile · ARKANA GATEWAY</PageTitle>
+
+<div class="profile-page">
+    <header class="profile-header">
+        <div class="profile-identity">
+            <div class="profile-avatar" aria-hidden="true">
+                <span class="material-symbols-outlined">account_circle</span>
+            </div>
+            <div>
+                <div class="eyebrow">Google OAuth profile</div>
+                <h1>@(_name ?? _email ?? "Your profile")</h1>
+                <p>@(_email ?? "Signed in with Google")</p>
+            </div>
+        </div>
+        <div class="profile-header-actions">
+            <span class="role-badge">@_role</span>
+            <button class="profile-action" @onclick="RefreshAsync" disabled="@_loading">
+                <span class="material-symbols-outlined">refresh</span>
+                @( _loading ? "Refreshing…" : "Refresh")
+            </button>
+            <a class="profile-action profile-action-danger" href="/logout">
+                <span class="material-symbols-outlined">logout</span>
+                Sign out
+            </a>
+            <a class="profile-action" href="/docs">
+                <span class="material-symbols-outlined">menu_book</span>
+                Docs
+            </a>
+        </div>
+    </header>
+
+    @if (_loadError is not null)
+    {
+        <div class="profile-alert" role="alert">
+            <span class="material-symbols-outlined">error</span>
+            <span>@_loadError</span>
+        </div>
+    }
+
+    <main class="profile-content">
+
+        @* ── Bind result alert: always explicit, success auto-dismisses ── *@
+        @if (_bindAlert is not null)
+        {
+            <div class="bind-alert bind-alert-@(_bindAlert.Succeeded ? "success" : "error")" role="alert" aria-live="polite">
+                <span class="material-symbols-outlined">@( _bindAlert.Succeeded ? "check_circle" : "error")</span>
+                <span class="bind-alert-text">@_bindAlert.Message</span>
+                <button type="button" class="bind-alert-close" aria-label="Dismiss" @onclick="DismissBindAlert">
+                    <span class="material-symbols-outlined" aria-hidden="true">close</span>
+                </button>
+            </div>
+        }
+
+        @* ── Subscription quota — split by what the bound keys actually route to ── *@
+        @{
+            var quotaAccounts = _usage?.Accounts ?? [];
+            var codexAccounts = quotaAccounts.Where(a => a.Kind == "codex").ToList();
+            var antigravityAccounts = quotaAccounts.Where(a => a.Kind == "antigravity").ToList();
+            var otherPinned = quotaAccounts.Where(a => a.Kind == "other").ToList();
+        }
+
+        @if (codexAccounts.Count > 0)
+        {
+            <section class="profile-section">
+                <div class="section-heading">
+                    <div>
+                        <div class="eyebrow">Subscription usage</div>
+                        <h2>ChatGPT Codex quota windows</h2>
+                    </div>
+                    <span class="section-caption">
+                        @if (_usage is { HasData: true })
+                        {
+                            <text>as of @UserTime.Format(DateTimeOffset.UtcNow, "HH:mm")</text>
+                        }
+                        else
+                        {
+                            <text>Rolling 5-hour &amp; weekly limits</text>
+                        }
+                    </span>
+                </div>
+
+                @{
+                    var codexWindows = codexAccounts.SelectMany(a => a.Windows).ToList();
+                }
+                @if (codexWindows.Count == 0)
+                {
+                    <div class="profile-empty">
+                        <span class="material-symbols-outlined">hourglass_empty</span>
+                        <span>No usage data yet — this fills in automatically once the first request flows through the gateway.</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="usage-grid">
+                        @foreach (var w in codexWindows)
+                        {
+                            <UsageCard Window="w" Now="_now" />
+                        }
+                    </div>
+                }
+
+                @if (_usage is { Pool.Count: > 0 } && _showPoolDetail)
+                {
+                    <div class="pool-block">
+                        <div class="pool-caption">Account pool (@_usage.Pool.Count @(_usage.Pool.Count == 1 ? "account" : "accounts"))</div>
+                        <table class="pool-table">
+                            <thead>
+                                <tr><th>Account</th><th>5-hour</th><th>Weekly</th><th>5h resets</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var acc in _usage.Pool)
+                                {
+                                    var p = acc.Windows.FirstOrDefault(w => w.Window == "5h");
+                                    var s = acc.Windows.FirstOrDefault(w => w.Window == "week");
+                                    var pinBadge = codexWindows.Any(x => x.AccountCode == acc.AccountCode);
+                                    <tr>
+                                        <td>@acc.AccountCode @(pinBadge ? "· your key" : "")</td>
+                                        <td><span class="usage-pill @PercentClass(p?.UsedPercent)">@(p is null ? "—" : $"{p.UsedPercent:F0}%")</span></td>
+                                        <td><span class="usage-pill @PercentClass(s?.UsedPercent)">@(s is null ? "—" : $"{s.UsedPercent:F0}%")</span></td>
+                                        <td class="muted">@(p?.ResetsAtUtc is null ? "—" : FormatCountdown(p.ResetsAtUtc.Value))</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+        }
+
+        @if (antigravityAccounts.Count > 0)
+        {
+            <section class="profile-section">
+                <div class="section-heading">
+                    <div>
+                        <div class="eyebrow">Subscription usage</div>
+                        <h2>Antigravity quota</h2>
+                    </div>
+                    <span class="section-caption">Gemini subscriptions your keys route through</span>
+                </div>
+
+                <div class="pf-quota-grid">
+                    @foreach (var acc in antigravityAccounts)
+                    {
+                        var cooldown = acc.QuotaCooldownUntil;
+                        var cooldownActive = cooldown.HasValue && cooldown.Value > DateTimeOffset.UtcNow;
+                        <div class="pf-quota-account">
+                            <div class="pf-pf-quota-account-head">
+                                <div>
+                                    <strong>@acc.DisplayName</strong>
+                                    <div class="muted pf-quota-sub">@acc.AccountCode · routed via the Gemini broker</div>
+                                </div>
+                                <span class="usage-pill @AccountStatusClass(acc.Status)">@AccountStatusLabel(acc.Status)</span>
+                            </div>
+                            <dl class="pf-quota-meta">
+                                <div>
+                                    <dt>Quota throttle</dt>
+                                    <dd>@(cooldownActive ? $"cooldown until {FormatCountdown(cooldown!.Value)}" : "none active")</dd>
+                                </div>
+                                <div>
+                                    <dt>Last success</dt>
+                                    <dd>@(acc.LastSuccessAt is null ? "—" : UserTime.Format(acc.LastSuccessAt.Value, "dd MMM HH:mm"))</dd>
+                                </div>
+                                <div>
+                                    <dt>Last failure</dt>
+                                    <dd>@(string.IsNullOrWhiteSpace(acc.LastFailureClass) ? "—" : acc.LastFailureClass)</dd>
+                                </div>
+                                <div>
+                                    <dt>Token</dt>
+                                    <dd>@(acc.TokenExpiresAt is null ? "—" : $"expires {UserTime.Format(acc.TokenExpiresAt.Value, "dd MMM HH:mm")}")</dd>
+                                </div>
+                            </dl>
+                            @if (acc.HasSnapshots)
+                            {
+                                <div class="usage-grid">
+                                    @foreach (var w in acc.Windows)
+                                    {
+                                        <UsageCard Window="w" Now="_now" />
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <p class="usage-note">Google publishes no usage window for this subscription; the values above are the quota state the gateway observes while routing to this account.</p>
+                            }
+                        </div>
+                    }
+                </div>
+
+                @if (_usage is { HasData: true })
+                {
+                    <div class="pool-block">
+                        <div class="pool-caption">Codex account pool (@_usage.Pool.Count @(_usage.Pool.Count == 1 ? "account" : "accounts"))</div>
+                        <table class="pool-table">
+                            <thead>
+                                <tr><th>Account</th><th>5-hour</th><th>Weekly</th><th>5h resets</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var acc in _usage.Pool)
+                                {
+                                    var p = acc.Windows.FirstOrDefault(w => w.Window == "5h");
+                                    var s = acc.Windows.FirstOrDefault(w => w.Window == "week");
+                                    <tr>
+                                        <td>@acc.AccountCode</td>
+                                        <td><span class="usage-pill @PercentClass(p?.UsedPercent)">@(p is null ? "—" : $"{p.UsedPercent:F0}%")</span></td>
+                                        <td><span class="usage-pill @PercentClass(s?.UsedPercent)">@(s is null ? "—" : $"{s.UsedPercent:F0}%")</span></td>
+                                        <td class="muted">@(p?.ResetsAtUtc is null ? "—" : FormatCountdown(p.ResetsAtUtc.Value))</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+        }
+
+        @if (codexAccounts.Count == 0 && antigravityAccounts.Count == 0)
+        {
+            <section class="profile-section">
+                <div class="section-heading">
+                    <div>
+                        <div class="eyebrow">Subscription usage</div>
+                        <h2>Provider quota</h2>
+                    </div>
+                    <span class="section-caption">Per provider you route to</span>
+                </div>
+                <div class="profile-empty">
+                    <span class="material-symbols-outlined">key</span>
+                    @if (otherPinned.Count > 0)
+                    {
+                        <span>Your keys are pinned to @string.Join(", ", otherPinned.Select(a => a.AccountCode)) — this provider publishes no quota windows here.</span>
+                    }
+                    else
+                    {
+                        <span>Bind an API key (below) to see its provider's quota here — ChatGPT Codex accounts show rolling windows, Gemini subscription accounts show their Antigravity quota state.</span>
+                    }
+                </div>
+            </section>
+        }
+
+        <section class="profile-section profile-overview">
+            <div class="section-heading">
+                <div>
+                    <div class="eyebrow">Account overview</div>
+                    <h2>Usage this month</h2>
+                </div>
+                <span class="section-caption">Your gateway activity</span>
+            </div>
+            <div class="profile-stat-grid">
+                <div class="profile-stat">
+                    <span class="stat-label">Requests</span>
+                    <strong>@(_stats?.Requests ?? 0)</strong>
+                    <small>completed requests</small>
+                </div>
+                <div class="profile-stat">
+                    <span class="stat-label">Total tokens</span>
+                    <strong>@FormatNumber(_stats?.TotalTokens ?? 0)</strong>
+                    <small>@FormatNumber(_stats?.InputTokens ?? 0) in · @FormatNumber(_stats?.OutputTokens ?? 0) out</small>
+                </div>
+                <div class="profile-stat">
+                    <span class="stat-label">Estimated cost</span>
+                    <strong>$@((_stats?.Cost ?? 0m).ToString("F4"))</strong>
+                    <small>provider-reported usage</small>
+                </div>
+            </div>
+        </section>
+
+        <div class="profile-columns">
+            <section class="profile-section">
+                <div class="section-heading">
+                    <div>
+                        <div class="eyebrow">Identity &amp; access</div>
+                        <h2>API key binding</h2>
+                    </div>
+                    <span class="coming-badge">Profile-scoped</span>
+                </div>
+                <p class="section-description">
+                    Bind an API key by proving possession of its full secret. The secret is hashed
+                    for lookup and is never stored or displayed.
+                </p>
+                <div class="bind-form">
+                    <input class="bind-input" type="password" value="@_keyToBind"
+                           @oninput="OnBindKeyInput" @onkeydown="OnBindKeyDown"
+                           placeholder="Paste the full API key" autocomplete="off" />
+                    <button type="button"
+                            class="profile-action bind-button @(_binding ? "is-busy" : "")"
+                            @onclick="BindKeyAsync"
+                            disabled="@_binding"
+                            aria-busy="@_binding">
+                        @if (_binding)
+                        {
+                            <span class="material-symbols-outlined bind-spinner" aria-hidden="true">progress_activity</span>
+                        }
+                        else
+                        {
+                            <span class="material-symbols-outlined" aria-hidden="true">link</span>
+                        }
+                        @(_binding ? "Binding…" : "Bind key")
+                    </button>
+                </div>
+                @if (_apiKeys is { Count: > 0 })
+                {
+                    <div class="key-list">
+                        @foreach (var key in _apiKeys)
+                        {
+                            var pinnedTo = key.PreferredProviderCode;
+                            <div class="key-row">
+                                <div>
+                                    <strong>@key.Name</strong>
+                                    <span class="key-prefix">@key.Prefix · created @UserTime.Format(key.CreatedAt, "MMM dd, yyyy")</span>
+                                    <div class="pf-key-routing">
+                                        @if (!string.IsNullOrWhiteSpace(pinnedTo))
+                                        {
+                                            <span class="pf-key-chip">routes to @pinnedTo</span>
+                                            <span class="pf-key-chip @(key.AllowProviderFallback ? "pf-key-chip-fallback" : "")">
+                                                @(key.AllowProviderFallback ? "fallback allowed" : "pinned only")
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="pf-key-chip pf-key-chip-warn">no provider pin — the gateway picks the route</span>
+                                        }
+                                        <span class="pf-key-chip pf-key-chip-bound">bound to this profile</span>
+                                    </div>
+                                </div>
+                                <span class="status-pill @(key.IsActive ? "status-active" : "status-inactive")">
+                                    @(key.IsActive ? "Active" : "Inactive")
+                                </span>
+                            </div>
+                        }
+                    </div>
+                }
+                else if (!_loading)
+                {
+                    <div class="profile-empty">
+                        <span class="material-symbols-outlined">key</span>
+                        <span>No API keys are available yet.</span>
+                    </div>
+                }
+            </section>
+
+            <section class="profile-section">
+                <div class="section-heading">
+                    <div>
+                        <div class="eyebrow">Breakdown</div>
+                        <h2>Usage by model</h2>
+                    </div>
+                    <span class="section-caption">Monthly</span>
+                </div>
+                @if (_modelUsage is { Count: > 0 })
+                {
+                    <div class="model-list">
+                        @foreach (var model in _modelUsage.Where(m => m.Requests > 0))
+                        {
+                            <div class="model-row">
+                                <div>
+                                    <strong>@model.ModelName</strong>
+                                    <span>@model.ProviderName</span>
+                                </div>
+                                <div class="model-metrics">
+                                    <strong>@model.Requests</strong>
+                                    <span>@FormatNumber(model.TotalTokens) tokens</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    @if (!_modelUsage.Any(m => m.Requests > 0))
+                    {
+                        <div class="profile-empty"><span class="material-symbols-outlined">bar_chart</span><span>No usage data this month.</span></div>
+                    }
+                }
+                else if (!_loading)
+                {
+                    <div class="profile-empty"><span class="material-symbols-outlined">bar_chart</span><span>No usage data this month.</span></div>
+                }
+            </section>
+        </div>
+
+        <section class="profile-section profile-logs">
+            <div class="section-heading">
+                <div>
+                    <div class="eyebrow">Audit trail</div>
+                    <h2>Recent request logs</h2>
+                </div>
+                <span class="section-caption">
+                    @if (_logTotal > 0)
+                    {
+                        <text>@FormatNumber(_logTotal) requests · page @_logPage of @LogTotalPages</text>
+                    }
+                    else
+                    {
+                        <text>Every request made with your keys</text>
+                    }
+                </span>
+            </div>
+            @if (_logRows is { Count: > 0 })
+            {
+                <div class="log-table-wrap">
+                    <table class="profile-table pf-log-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Provider</th>
+                                <th>Model</th>
+                                <th>API key</th>
+                                <th>Tokens</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var log in _logRows)
+                            {
+                                var isOpen = _openLogId == log.Id;
+                                <tr class="pf-log-row @(isOpen ? "is-open" : "") @(log.IsError ? "is-error" : "")"
+                                    @onclick="() => ToggleLogDetailAsync(log.Id)">
+                                    <td class="muted">@UserTime.Format(log.Timestamp, "MMM dd, HH:mm")</td>
+                                    <td>@log.Provider</td>
+                                    <td class="mono">@log.Model</td>
+                                    <td>@(log.ApiKeyName ?? "—")</td>
+                                    <td>@FormatNumber(log.TotalTokens)</td>
+                                    <td>
+                                        <span class="status-pill @(log.IsError ? "status-error" : "status-active")">
+                                            @(log.IsError ? "Error" : "OK")
+                                        </span>
+                                        <span class="pf-caret @(isOpen ? "open" : "")" aria-hidden="true">chevron_right</span>
+                                    </td>
+                                </tr>
+                                @if (isOpen)
+                                {
+                                    <tr class="pf-detail-row">
+                                        <td colspan="6">
+                                            @if (_openLog is null)
+                                            {
+                                                <div class="pf-loading"><span class="material-symbols-outlined bind-spinner">progress_activity</span> Loading full log…</div>
+                                            }
+                                            else
+                                            {
+                                                var full = _openLog;
+                                                <div class="pf-detail-panel">
+                                                    <div class="pf-section">
+                                                        <div class="pf-section-title"><span class="material-symbols-outlined">forum</span> Request messages</div>
+                                                        @if (full.Messages is { Count: > 0 })
+                                                        {
+                                                            <div class="pf-messages">
+                                                                @foreach (var msg in full.Messages)
+                                                                {
+                                                                    <div class="pf-msg @($"pf-role-{msg.Role}")">
+                                                                        <span class="pf-role">@msg.Role</span>
+                                                                        <pre class="pf-content"><code>@msg.Content</code></pre>
+                                                                    </div>
+                                                                }
+                                                            </div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="pf-empty">No request messages captured</div>
+                                                        }
+                                                    </div>
+
+                                                    <div class="pf-section">
+                                                        <div class="pf-section-title"><span class="material-symbols-outlined">code</span> Tool calls</div>
+                                                        @if (full.ToolCalls is { Count: > 0 })
+                                                        {
+                                                            @foreach (var tc in full.ToolCalls)
+                                                            {
+                                                                <div class="pf-tool">
+                                                                    <div class="pf-tool-head"><span class="pf-key-chip">@tc.Type</span> <code>@tc.FunctionName</code></div>
+                                                                    <pre class="pf-content"><code>@FormatJson(tc.FunctionArguments)</code></pre>
+                                                                </div>
+                                                            }
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="pf-empty">No tool calls in this exchange</div>
+                                                        }
+                                                    </div>
+
+                                                    <div class="pf-section">
+                                                        <div class="pf-section-title"><span class="material-symbols-outlined">auto_awesome</span> AI response</div>
+                                                        @if (!string.IsNullOrEmpty(full.ResponseContent))
+                                                        {
+                                                            <pre class="pf-content pf-response"><code>@full.ResponseContent</code></pre>
+                                                        }
+                                                        @if (full.IsError && !string.IsNullOrEmpty(full.ErrorMessage))
+                                                        {
+                                                            <div class="pf-error">
+                                                                <div class="pf-error-label">Error</div>
+                                                                <pre><code>@full.ErrorMessage</code></pre>
+                                                            </div>
+                                                        }
+                                                        @if (string.IsNullOrEmpty(full.ResponseContent) && !full.IsError)
+                                                        {
+                                                            <div class="pf-empty">No response content</div>
+                                                        }
+                                                    </div>
+
+                                                    <div class="pf-section">
+                                                        <div class="pf-section-title"><span class="material-symbols-outlined">info</span> Metadata</div>
+                                                        <div class="pf-meta-grid">
+                                                            <div class="pf-meta-item"><span>Request ID</span><span class="mono">@full.Id</span></div>
+                                                            <div class="pf-meta-item"><span>Timestamp</span><span>@UserTime.Format(full.Timestamp, "yyyy-MM-dd HH:mm:ss")</span></div>
+                                                            <div class="pf-meta-item"><span>Provider</span><span>@full.Provider</span></div>
+                                                            <div class="pf-meta-item"><span>Model</span><span class="mono">@full.Model</span></div>
+                                                            <div class="pf-meta-item"><span>Route</span><span>@full.RouteKind</span></div>
+                                                            <div class="pf-meta-item"><span>Account</span><span class="mono">@(full.ResolvedProviderAccountCode ?? "—")</span></div>
+                                                            <div class="pf-meta-item"><span>API key</span><span>@(full.ApiKeyName ?? "—")</span></div>
+                                                            <div class="pf-meta-item"><span>Tokens</span><span>@FormatNumber(full.InputTokens) in · @FormatNumber(full.OutputTokens) out · @FormatNumber(full.TotalTokens) total</span></div>
+                                                            <div class="pf-meta-item"><span>Cost</span><span>$@full.Cost.ToString("F6")</span></div>
+                                                            <div class="pf-meta-item"><span>Duration</span><span>@full.DurationMs ms</span></div>
+                                                            @if (!string.IsNullOrEmpty(full.ViaMitmAgent))
+                                                            {
+                                                                <div class="pf-meta-item"><span>Via MITM agent</span><span>@full.ViaMitmAgent</span></div>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pf-pager">
+                    <label class="pf-pager-size">
+                        Rows
+                        <select value="@_logPageSize" @onchange="OnLogPageSizeChangedAsync">
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </label>
+                    <div class="pf-pager-buttons">
+                        <button type="button" class="profile-action pf-pager-button" disabled="@(_logPage <= 1 || _logsLoading)" @onclick="() => GoToLogPageAsync(1)">First</button>
+                        <button type="button" class="profile-action pf-pager-button" disabled="@(_logPage <= 1 || _logsLoading)" @onclick="() => GoToLogPageAsync(_logPage - 1)">Prev</button>
+                        <span class="pf-pager-status">@_logPage / @LogTotalPages</span>
+                        <button type="button" class="profile-action pf-pager-button" disabled="@(_logPage >= LogTotalPages || _logsLoading)" @onclick="() => GoToLogPageAsync(_logPage + 1)">Next</button>
+                        <button type="button" class="profile-action pf-pager-button" disabled="@(_logPage >= LogTotalPages || _logsLoading)" @onclick="() => GoToLogPageAsync(LogTotalPages)">Last</button>
+                    </div>
+                </div>
+            }
+            else if (!_loading)
+            {
+                <div class="profile-empty"><span class="material-symbols-outlined">description</span><span>No request logs yet.</span></div>
+            }
+        </section>
+    </main>
+</div>
+
+<style>
+    .profile-page { width: min(1440px, 100%); margin: 0 auto; }
+    .profile-header { display:flex; justify-content:space-between; align-items:center; gap:24px; padding:28px 36px; border-bottom:1px solid var(--profile-border); background:var(--profile-surface); }
+    .profile-identity, .profile-header-actions, .profile-action, .key-row, .model-row, .profile-empty { display:flex; align-items:center; }
+    .profile-identity { gap:16px; min-width:0; }
+    .profile-avatar { width:52px; height:52px; border-radius:16px; display:grid; place-items:center; color:#fff; background:linear-gradient(135deg,var(--profile-accent),#b94f38); flex:0 0 auto; }
+    .profile-avatar .material-symbols-outlined { font-size:31px; }
+    .profile-header h1 { margin:4px 0 2px; font-size:22px; color:var(--profile-text); font-weight:700; }
+    .profile-header p { margin:0; color:var(--profile-muted); font-size:13px; overflow-wrap:anywhere; }
+    .profile-header-actions { gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+    .profile-action { gap:7px; padding:9px 12px; border:1px solid var(--profile-border); border-radius:9px; background:var(--profile-surface); color:var(--profile-text); text-decoration:none; font:inherit; font-size:13px; cursor:pointer; transition:border-color .15s ease, color .15s ease; }
+    .profile-action:hover:not(:disabled) { border-color:var(--profile-accent); color:var(--profile-accent); }
+    /* Cursor semantics: idle+enabled = pointer; disabled = not-allowed;
+       in-flight ONLY while a request is actually running (.is-busy). */
+    .profile-action:not(:disabled) { cursor:pointer; }
+    .profile-action:disabled { opacity:.55; cursor:not-allowed; }
+    .profile-action.is-busy { cursor:progress; }
+    .profile-action-danger { color:#b94f38; }
+    .profile-action .material-symbols-outlined { font-size:17px; }
+    .role-badge, .coming-badge, .status-pill { display:inline-flex; align-items:center; border-radius:999px; font-size:11px; font-weight:700; white-space:nowrap; }
+    .role-badge { padding:5px 10px; background:#fff0ea; color:#b94f38; }
+    .profile-content { padding:28px 36px 48px; display:flex; flex-direction:column; gap:20px; }
+    .profile-section { background:var(--profile-surface); border:1px solid var(--profile-border); border-radius:14px; padding:24px; box-shadow:0 2px 10px rgba(31,25,21,.035); }
+    .section-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:18px; }
+    .section-heading h2 { margin:4px 0 0; font-size:17px; color:var(--profile-text); }
+    .eyebrow { color:#b94f38; font-size:10px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+    .section-caption { color:var(--profile-muted); font-size:12px; }
+    .profile-stat-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+    .profile-stat { padding:18px; border:1px solid var(--profile-border); border-radius:11px; background:var(--profile-subtle); }
+    .profile-stat strong { display:block; margin:7px 0 3px; font-size:25px; color:var(--profile-text); }
+    .profile-stat small, .stat-label { color:var(--profile-muted); font-size:12px; }
+    .profile-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+    .coming-badge { padding:5px 9px; background:var(--profile-subtle); color:var(--profile-muted); }
+    .section-description { margin:-4px 0 18px; color:var(--profile-muted); font-size:13px; line-height:1.55; }
+    .bind-form { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
+    .bind-input { flex:1; min-width:0; padding:10px 11px; border:1px solid var(--profile-border); border-radius:9px; background:var(--profile-subtle); color:var(--profile-text); font:inherit; font-size:13px; }
+    .bind-input:focus { outline:2px solid rgba(229,106,74,.22); border-color:#E56A4A; }
+    .bind-button { flex:0 0 auto; }
+    .bind-spinner { animation:bind-spin .8s linear steps(24); font-size:17px; }
+    @@keyframes bind-spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+
+    /* Bind result alert — prominent banner, ikon + warna, dismissable */
+    .bind-alert { display:flex; align-items:flex-start; gap:10px; padding:12px 14px; border-radius:10px; font-size:13px; line-height:1.45; border:1px solid transparent; }
+    .bind-alert .material-symbols-outlined { font-size:19px; flex:0 0 auto; }
+    .bind-alert-text { flex:1; min-width:0; overflow-wrap:anywhere; }
+    .bind-alert-success { color:#1d6b42; background:#eaf7ef; border-color:#bfe6cf; }
+    .bind-alert-error { color:#9a4b3c; background:#fbecea; border-color:#f1c6be; }
+    .bind-alert-close { margin-left:auto; flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; padding:0; border:0; border-radius:7px; background:transparent; color:inherit; opacity:.65; cursor:pointer; }
+    .bind-alert-close:hover { opacity:1; background:rgba(0,0,0,.05); }
+    .bind-alert-close .material-symbols-outlined { font-size:16px; }
+
+    /* Usage windows */
+    .usage-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; }
+    .usage-card { padding:16px 18px; border:1px solid var(--profile-border); border-radius:11px; background:var(--profile-subtle); }
+    .usage-card-top { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+    .usage-card-title { font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--profile-muted); }
+    .usage-card-account { font-size:11px; color:var(--profile-muted); font-family:var(--font-mono,ui-monospace,SFMono-Regular,Consolas,monospace); }
+    .usage-percent { display:block; margin:8px 0 2px; font-size:27px; font-weight:800; color:var(--profile-text); }
+    .usage-meter { height:7px; border-radius:999px; background:rgba(31,25,21,.08); overflow:hidden; margin:6px 0 8px; }
+    .usage-meter-fill { height:100%; border-radius:999px; transition:width .35s ease; }
+    .usage-meter-fill.ok { background:#3d9960; }
+    .usage-meter-fill.warn { background:#e2a33c; }
+    .usage-meter-fill.crit { background:#cf5540; }
+    .usage-meta { display:flex; justify-content:space-between; gap:10px; font-size:12px; color:var(--profile-muted); flex-wrap:wrap; }
+    .usage-note { margin:0 0 10px; color:var(--profile-muted); font-size:13px; }
+    .pool-block { margin-top:14px; }
+    .pool-caption { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--profile-muted); margin-bottom:8px; }
+    .pool-table { width:100%; border-collapse:collapse; font-size:12px; }
+    .pool-table th { text-align:left; padding:7px 10px; color:var(--profile-muted); font-size:10px; letter-spacing:.06em; text-transform:uppercase; border-bottom:1px solid var(--profile-border); }
+    .pool-table td { padding:9px 10px; border-bottom:1px solid var(--profile-border); white-space:nowrap; }
+    .pool-table tr:last-child td { border-bottom:0; }
+    .usage-pill { display:inline-block; padding:3px 8px; border-radius:999px; background:rgba(31,25,21,.06); font-weight:700; }
+    .usage-pill.ok { color:#1d6b42; background:#eaf7ef; }
+    .usage-pill.warn { color:#8a5a13; background:#fdf3df; }
+    .usage-pill.crit { color:#9a4b3c; background:#fbecea; }
+    .stale-flag { font-size:11px; color:#8a5a13; }
+
+    .key-list, .model-list { display:flex; flex-direction:column; gap:8px; }
+    .key-row, .model-row { justify-content:space-between; gap:16px; padding:12px 0; border-top:1px solid var(--profile-border); }
+    .key-row strong, .model-row strong { display:block; color:var(--profile-text); font-size:13px; }
+    .key-prefix, .model-row span { display:block; margin-top:4px; color:var(--profile-muted); font-size:11px; }
+    .status-pill { padding:4px 8px; }
+    .status-active { color:#247a4b; background:#eaf7ef; }
+    .status-inactive, .status-error { color:#9a4b3c; background:#fbecea; }
+    .model-metrics { text-align:right; }
+    .model-metrics strong { font-size:13px; }
+    .profile-empty { justify-content:center; gap:8px; min-height:90px; color:var(--profile-muted); font-size:13px; }
+    .profile-empty .material-symbols-outlined { font-size:19px; }
+    .log-table-wrap { overflow:auto; }
+    .profile-table { width:100%; min-width:720px; border-collapse:collapse; font-size:12px; }
+    .profile-table th { padding:10px 12px; text-align:left; color:var(--profile-muted); font-size:10px; letter-spacing:.06em; text-transform:uppercase; border-bottom:1px solid var(--profile-border); }
+    .profile-table td { padding:12px; color:var(--profile-text); border-bottom:1px solid var(--profile-border); white-space:nowrap; }
+    .profile-table tr:last-child td { border-bottom:0; }
+    .muted { color:var(--profile-muted) !important; }
+    .mono { font-family:var(--font-mono,ui-monospace,SFMono-Regular,Consolas,monospace); }
+    .profile-alert { margin:20px 36px 0; padding:12px 14px; display:flex; gap:8px; align-items:center; color:#9a4b3c; background:#fbecea; border:1px solid #f1c6be; border-radius:10px; font-size:13px; }
+
+    /* ── Antigravity quota cards ── */
+    .pf-quota-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:14px; }
+    .pf-quota-account { border:1px solid var(--profile-border); border-radius:12px; padding:16px; background:var(--profile-subtle); }
+    .pf-pf-quota-account-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+    .pf-pf-quota-account-head strong { display:block; font-size:13px; color:var(--profile-text); }
+    .pf-quota-sub { margin-top:4px; font-size:11px; }
+    .pf-quota-meta { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px; margin:14px 0 0; }
+    .pf-quota-meta div { min-width:0; }
+    .pf-quota-meta dt { margin:0; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--profile-muted); }
+    .pf-quota-meta dd { margin:3px 0 0; font-size:12px; color:var(--profile-text); }
+    .pf-quota-account .usage-note { display:block; max-width:68ch; margin-top:14px; padding-top:12px; border-top:1px solid var(--profile-border); }
+
+    /* ── Key routing chips ── */
+    .pf-key-routing { display:flex; flex-wrap:wrap; gap:6px; margin-top:7px; }
+    .pf-key-chip { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; border:1px solid var(--profile-border); background:var(--profile-surface); color:var(--profile-muted); font-size:10.5px; }
+    .pf-key-chip-fallback { color:#8a5a13; border-color:#eed9b0; background:#fdf3df; }
+    .pf-key-chip-warn { color:#9a4b3c; border-color:#f1c6be; background:#fbecea; }
+    .pf-key-chip-bound { color:#247a4b; border-color:#c9e6d5; background:#eaf7ef; }
+
+    /* ── Log paging + expandable detail ── */
+    .pf-log-table .pf-log-row { cursor:pointer; transition:background .12s ease; }
+    .pf-log-table .pf-log-row:hover { background:rgba(31,25,21,.03); }
+    .pf-log-table .pf-log-row.is-open { background:rgba(229,106,74,.06); }
+    .pf-log-table .pf-log-row.is-error td { color:#9a4b3c; }
+    .pf-caret { display:inline-block; margin-left:6px; vertical-align:middle; font-family:'Material Symbols Outlined'; font-size:16px; color:var(--profile-muted); transition:transform .15s ease; }
+    .pf-caret.open { transform:rotate(90deg); }
+    .pf-detail-row td { padding:0 !important; white-space:normal !important; background:var(--profile-subtle); }
+    .pf-detail-panel { padding:18px 20px; display:flex; flex-direction:column; gap:18px; }
+    .pf-loading { display:flex; align-items:center; gap:8px; padding:18px 20px; color:var(--profile-muted); font-size:12px; }
+    .pf-section { display:flex; flex-direction:column; gap:8px; }
+    .pf-section-title { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--profile-muted); }
+    .pf-section-title .material-symbols-outlined { font-size:16px; }
+    .pf-empty { color:var(--profile-muted); font-size:12px; font-style:italic; }
+    .pf-messages { display:flex; flex-direction:column; gap:10px; }
+    .pf-msg { border:1px solid var(--profile-border); border-radius:10px; background:var(--profile-surface); overflow:hidden; }
+    .pf-role { display:block; padding:6px 12px; font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--profile-muted); border-bottom:1px solid var(--profile-border); background:rgba(31,25,21,.02); }
+    .pf-msg.pf-role-system .pf-role { color:#6a5acd; }
+    .pf-msg.pf-role-user .pf-role { color:#247a4b; }
+    .pf-msg.pf-role-assistant .pf-role { color:#b94f38; }
+    .pf-content { margin:0; padding:12px; max-height:340px; overflow:auto; font-family:var(--font-mono,ui-monospace,SFMono-Regular,Consolas,monospace); font-size:11.5px; line-height:1.55; color:var(--profile-text); white-space:pre-wrap; overflow-wrap:anywhere; }
+    .pf-response { border:1px solid var(--profile-border); border-radius:10px; background:var(--profile-surface); }
+    .pf-tool { border:1px solid var(--profile-border); border-radius:10px; background:var(--profile-surface); margin-bottom:8px; }
+    .pf-tool-head { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--profile-border); font-size:12px; }
+    .pf-error { border:1px solid #f1c6be; border-radius:10px; background:#fbecea; padding:10px 12px; }
+    .pf-error-label { font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#9a4b3c; margin-bottom:6px; }
+    .pf-error pre { margin:0; font-size:11.5px; white-space:pre-wrap; overflow-wrap:anywhere; color:#9a4b3c; }
+    .pf-meta-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:10px 16px; }
+    .pf-meta-item { display:flex; flex-direction:column; gap:2px; min-width:0; }
+    .pf-meta-item span:first-child { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--profile-muted); }
+    .pf-meta-item span:last-child { font-size:12px; color:var(--profile-text); overflow-wrap:anywhere; }
+    .log-pager { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:14px; flex-wrap:wrap; }
+    .pager-size { display:flex; align-items:center; gap:6px; color:var(--profile-muted); font-size:12px; }
+    .pager-size select { padding:6px 8px; border:1px solid var(--profile-border); border-radius:8px; background:var(--profile-surface); color:var(--profile-text); font:inherit; font-size:12px; }
+    .pf-pager-buttons { display:flex; align-items:center; gap:6px; }
+    .pf-pager-button { padding:6px 10px; font-size:12px; }
+    .pf-pager-status { padding:0 6px; color:var(--profile-muted); font-size:12px; }
+    .bind-spinner { animation:spin 1.6s linear infinite; }
+    @@keyframes spin { to { transform:rotate(360deg); } }
+    @@media (max-width: 800px) {
+        .profile-header, .profile-content { padding-left:18px; padding-right:18px; }
+        .profile-header { align-items:flex-start; flex-direction:column; }
+        .profile-header-actions { justify-content:flex-start; }
+        .profile-stat-grid, .profile-columns { grid-template-columns:1fr; }
+        .profile-alert { margin-left:18px; margin-right:18px; }
+        .bind-form { flex-direction:column; align-items:stretch; }
+        .bind-button { justify-content:center; }
+        .pool-block { overflow-x:auto; }
+    }
+</style>
+
+@code {
+    private string? _email;
+    private string? _name;
+    private Guid _ownerUserId;
+    private string _role = "User";
+    private string _keyToBind = string.Empty;
+
+    /// <summary>Prominent bind-result alert. Success auto-dismisses after ~6s; error stays until closed.</summary>
+    private sealed record BindAlert(bool Succeeded, string Message, DateTimeOffset ShownAt);
+    private BindAlert? _bindAlert;
+    private bool _binding;
+
+    private bool _ownerKeysPinned;
+    private bool _showPoolDetail = true;
+    private DashboardService.UsageStats? _stats;
+    private List<DashboardService.ModelUsageView>? _modelUsage;
+    private List<DashboardService.ApiKeyView>? _apiKeys;
+    private Endpoints.ProfileEndpoints.UsageWindowsResponse? _usage;
+    private string? _loadError;
+    private bool _loading;
+
+    // ── Paginated request logs (scalar summaries; full payload on demand) ──
+    private List<DashboardService.LogSummaryView>? _logRows;
+    private int _logTotal;
+    private int _logPage = 1;
+    private int _logPageSize = 25;
+    private bool _logsLoading;
+    private Guid? _openLogId;
+    private DashboardService.LogEntryView? _openLog;
+
+    private int LogTotalPages => _logPageSize <= 0
+        ? 1
+        : Math.Max(1, (int)Math.Ceiling(_logTotal / (double)_logPageSize));
+
+    /// <summary>Ticking clock for live countdowns — disposed with the circuit.</summary>
+    private readonly System.Timers.Timer _clockTimer =
+        new(TimeSpan.FromSeconds(30).TotalMilliseconds) { AutoReset = true };
+    private DateTimeOffset _now = DateTimeOffset.UtcNow;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        _email = user.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+                 ?? user.FindFirst("email")?.Value
+                 ?? user.Identity?.Name;
+        _name = user.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value;
+        _role = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "User";
+
+        var rawOwnerId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var rawTenantId = user.FindFirst("TenantId")?.Value;
+        var claimTenantId = Guid.TryParse(rawTenantId, out var parsedTenantId)
+            ? parsedTenantId
+            : (Guid?)null;
+        var tenantId = TenantProvider.TenantId ?? claimTenantId;
+
+        if (tenantId is not { } currentTenantId || currentTenantId == Guid.Empty)
+        {
+            _ownerUserId = Guid.Empty;
+            _loadError = "The signed-in profile has no valid tenant context. Sign out and sign in again.";
+        }
+        else
+        {
+            if (!Guid.TryParse(rawOwnerId, out _ownerUserId) && !string.IsNullOrWhiteSpace(_email))
+            {
+                // Older dashboard cookies may not carry the stable database id.
+                // Resolve the already-provisioned user, but only within the
+                // authenticated tenant; new Google logins carry the id directly.
+                var persistedUser = await DashboardUsers.GetByUsernameAsync(_email);
+                _ownerUserId = persistedUser?.TenantId == currentTenantId
+                    ? persistedUser.Id
+                    : Guid.Empty;
+            }
+
+            // Never trust a client/session id without checking its persisted
+            // tenant. This also protects legacy cookies with stale claims.
+            if (_ownerUserId != Guid.Empty)
+            {
+                var persistedUser = await DashboardUsers.GetByIdAsync(_ownerUserId);
+                if (persistedUser is null || persistedUser.TenantId != currentTenantId)
+                    _ownerUserId = Guid.Empty;
+            }
+        }
+
+        if (_ownerUserId == Guid.Empty)
+            _loadError ??= "The signed-in profile could not be identified. Sign out and sign in again.";
+        _clockTimer.Elapsed += OnClockTick;
+        _clockTimer.Start();
+        await RefreshAsync();
+    }
+
+    private void OnClockTick(object? sender, System.Timers.ElapsedEventArgs e)
+    {
+        _now = DateTimeOffset.UtcNow;
+        // Auto-dismiss a success bind alert ~6s after it appeared.
+        if (_bindAlert is { } a && a.Succeeded && DateTimeOffset.UtcNow - a.ShownAt >= TimeSpan.FromSeconds(6))
+            _bindAlert = null;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        _clockTimer.Stop();
+        _clockTimer.Dispose(); // no timer leaks across navigations
+    }
+
+    private void DismissBindAlert() => _bindAlert = null;
+
+    /// <summary>Copies the password input into component state on every edit/paste.</summary>
+    private void OnBindKeyInput(ChangeEventArgs e)
+    {
+        _keyToBind = e.Value?.ToString() ?? string.Empty;
+        if (_bindAlert is { Succeeded: false })
+            _bindAlert = null;
+    }
+
+    private async Task BindKeyAsync()
+    {
+        if (_binding)
+            return;
+
+        if (_ownerUserId == Guid.Empty)
+        {
+            _bindAlert = new BindAlert(false,
+                "Your signed-in profile could not be identified. Sign out and sign in again.",
+                DateTimeOffset.UtcNow);
+            return;
+        }
+
+        var candidate = _keyToBind.Trim();
+        if (candidate.Length == 0)
+        {
+            _bindAlert = new BindAlert(false, "Paste the complete API key first.", DateTimeOffset.UtcNow);
+            return;
+        }
+
+        _binding = true;
+        _bindAlert = null;
+        try
+        {
+            var result = await Dashboard.BindApiKeyToUserAsync(_ownerUserId, candidate);
+            _bindAlert = new BindAlert(result.Success, result.Message, DateTimeOffset.UtcNow);
+            if (result.Success)
+            {
+                _keyToBind = string.Empty;
+                await RefreshAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _bindAlert = new BindAlert(false, $"The API key could not be bound: {ex.Message}", DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            _binding = false;
+        }
+    }
+
+    /// <summary>Enter in the key field submits the same bind as the button.</summary>
+    private Task OnBindKeyDown(KeyboardEventArgs e)
+        => e.Key == "Enter" && !_binding && !string.IsNullOrWhiteSpace(_keyToBind)
+            ? BindKeyAsync()
+            : Task.CompletedTask;
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        try
+        {
+            if (_ownerUserId == Guid.Empty)
+            {
+                _stats = new DashboardService.UsageStats(0, 0, 0, 0, 0m);
+                _modelUsage = [];
+                _apiKeys = [];
+                _usage = null;
+                _logRows = [];
+                _logTotal = 0;
+                _loadError ??= "The signed-in profile could not be identified. Sign out and sign in again.";
+                return;
+            }
+
+            _loadError = null;
+            _stats = await Dashboard.GetOwnedUsageStatsAsync(_ownerUserId,
+                DashboardService.TimeRange.Monthly);
+            _modelUsage = await Dashboard.GetOwnedModelUsageAsync(_ownerUserId,
+                DashboardService.TimeRange.Monthly);
+            _apiKeys = await Dashboard.GetOwnedApiKeysAsync(_ownerUserId);
+
+            _usage = await Dashboard.GetUsageWindowsAsync(_ownerUserId);
+            _ownerKeysPinned = (_apiKeys ?? []).Any(k => !string.IsNullOrWhiteSpace(k.PreferredProviderCode));
+
+            await LoadLogPageAsync(_logPage);
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Profile data could not be loaded: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    /// <summary>
+    /// Loads one page of the caller's request logs. Rows are scalar summaries;
+    /// the message/response payload is fetched per row (see ToggleLogDetailAsync)
+    /// so a long history never gets hydrated just to render the table.
+    /// </summary>
+    private async Task LoadLogPageAsync(int page)
+    {
+        _logsLoading = true;
+        try
+        {
+            _logPage = Math.Max(1, page);
+            var (items, total) = await Dashboard.GetOwnedLogsPageAsync(_ownerUserId, _logPage, _logPageSize);
+            _logRows = items.ToList();
+            _logTotal = total;
+            // Page may have shifted past the end (new filter/size): fall back.
+            if (_logRows.Count == 0 && _logTotal > 0 && _logPage > 1)
+            {
+                _logPage = LogTotalPages;
+                (items, total) = await Dashboard.GetOwnedLogsPageAsync(_ownerUserId, _logPage, _logPageSize);
+                _logRows = items.ToList();
+                _logTotal = total;
+            }
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Request logs could not be loaded: {ex.Message}";
+        }
+        finally
+        {
+            _logsLoading = false;
+        }
+    }
+
+    private async Task GoToLogPageAsync(int page)
+    {
+        _openLogId = null;
+        _openLog = null;
+        await LoadLogPageAsync(page);
+    }
+
+    private async Task OnLogPageSizeChangedAsync(ChangeEventArgs e)
+    {
+        if (int.TryParse(Convert.ToString(e.Value), out var size) && size > 0)
+            _logPageSize = size;
+        _openLogId = null;
+        _openLog = null;
+        await LoadLogPageAsync(1);
+    }
+
+    /// <summary>Expands one row and loads its full log on demand (ownership-guarded).</summary>
+    private async Task ToggleLogDetailAsync(Guid id)
+    {
+        if (_openLogId == id)
+        {
+            _openLogId = null;
+            _openLog = null;
+            return;
+        }
+
+        _openLogId = id;
+        _openLog = null;
+        try
+        {
+            _openLog = await Dashboard.GetOwnedLogByIdAsync(_ownerUserId, id);
+            if (_openLog is null)
+                _loadError = "That log entry is no longer available to this profile.";
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"The full log could not be loaded: {ex.Message}";
+        }
+    }
+
+    private static string FormatJson(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw))
+            return "";
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(raw);
+            return System.Text.Json.JsonSerializer.Serialize(doc, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return raw;
+        }
+    }
+
+    /// <summary>Maps ProviderAccountStatus (and snapshot-only states) to a pill class.</summary>
+    private static string AccountStatusClass(string? status) => status?.ToLowerInvariant() switch
+    {
+        "connected" or "tracked" => "ok",
+        "pending" or "draining" => "warn",
+        "reconnectrequired" or "outofsync" or "missingcredential" or "disabled" => "crit",
+        _ => ""
+    };
+
+    private static string AccountStatusLabel(string? status) => status?.ToLowerInvariant() switch
+    {
+        "connected" => "Connected",
+        "pending" => "Pending",
+        "draining" => "Draining",
+        "disabled" => "Disabled",
+        "reconnectrequired" => "Reconnect required",
+        "outofsync" => "Out of sync",
+        "missingcredential" => "Missing credential",
+        "tracked" => "Tracked",
+        "no-data" or null or "" => "No data yet",
+        _ => status!
+    };
+
+    private static string PercentClass(double? percent) => percent switch
+    {
+        null => "",
+        > 90 => "crit",
+        >= 70 => "warn",
+        _ => "ok"
+    };
+
+    /// <summary>"resets in HH:MM" countdown against the ticking clock.</summary>
+    private string FormatCountdown(DateTimeOffset resetsAtUtc)
+    {
+        var remaining = resetsAtUtc - _now;
+        if (remaining <= TimeSpan.Zero)
+            return "now";
+        if (remaining.TotalDays >= 2)
+            return $"in {(int)remaining.TotalDays}d {remaining.Hours}h";
+        if (remaining.TotalHours >= 1)
+            return $"in {remaining.Hours}h {remaining.Minutes:D2}m";
+        return $"in {remaining.Minutes}m {(int)remaining.Seconds:D2}s";
+    }
+
+    private static string FormatNumber(int value) => value switch
+    {
+        >= 1_000_000 => $"{value / 1_000_000.0:F1}M",
+        >= 1_000 => $"{value / 1_000.0:F1}K",
+        _ => value.ToString("N0")
+    };
+}

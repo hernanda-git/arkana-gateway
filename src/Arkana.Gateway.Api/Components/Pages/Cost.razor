@@ -1,0 +1,281 @@
+@page "/cost"
+@rendermode InteractiveServer
+@using Arkana.Gateway.Api.Services
+
+@inject UserTimeService UserTime
+
+<PageTitle>Cost</PageTitle>
+
+<div class="cost-page">
+    @* ── Header ──────────────────────────────────────────── *@
+    <div class="cost-header">
+        <div>
+            <h2 style="font-size:22px;font-weight:600;margin:0">Cost</h2>
+            <p style="color:var(--text-secondary);font-size:13px;margin:2px 0 0 0">Usage costs broken down by model.</p>
+        </div>
+    </div>
+
+    @* ── Filters row ────────────────────────────────────── *@
+    <div class="cost-filters">
+        @if (_loadError is not null)
+        {
+            <div class="cost-alert" role="alert">
+                <span class="cost-alert-icon">⚠</span>
+                <span>@_loadError</span>
+            </div>
+        }
+        <div class="cost-month-nav">
+            <button class="cost-nav-btn" @onclick="PrevMonth" title="Previous month">
+                <Heroicon Name="chevron-left" Size="16" />
+            </button>
+            <span class="cost-month-label">@CurrentMonthLabel</span>
+            <button class="cost-nav-btn" @onclick="NextMonth" title="Next month">
+                <Heroicon Name="chevron-right" Size="16" />
+            </button>
+        </div>
+        <div class="cost-select-group">
+            <select class="cost-select" @bind="FilterModelCode" @bind:after="OnFilterChanged">
+                <option value="*">All Models</option>
+                @if (modelFilterList is not null)
+                {
+                    @foreach (var m in modelFilterList)
+                    {
+                        <option value="@m.Code">@m.Name (@m.ProviderName)</option>
+                    }
+                }
+            </select>
+            <select class="cost-select" @bind="FilterKeyPrefix" @bind:after="OnFilterChanged">
+                <option value="*">All Keys</option>
+                @if (apiKeyList is not null)
+                {
+                    @foreach (var k in apiKeyList)
+                    {
+                        <option value="@k.Name">@k.Name</option>
+                    }
+                }
+            </select>
+        </div>
+    </div>
+
+    @* ── Chart area ─────────────────────────────────────── *@
+    <div class="cost-chart-wrap @(IsChartDisabled ? "chart-disabled" : "")">
+        @if (chartData is not null && chartData.Dates.Count > 0)
+        {
+            @* ── Chart ───────────────────────────────── *@
+            <div class="cost-chart">
+                @* ── Y-axis ─────────────────────────────── *@
+                <div class="cost-y-axis">
+                    @{
+                        var ySteps = 5;
+                        var rawMax = chartData.MaxCost * 1.2m;
+                        decimal yMax;
+                        if (rawMax >= 1m)
+                            yMax = Math.Ceiling(rawMax);
+                        else if (rawMax >= 0.001m)
+                        {
+                            var digits = (int)Math.Ceiling(-Math.Log10((double)rawMax));
+                            var factor = (decimal)Math.Pow(10, digits);
+                            yMax = Math.Ceiling(rawMax * factor) / factor;
+                        }
+                        else
+                            yMax = 0.001m;
+                    }
+                    @for (var i = ySteps; i >= 0; i--)
+                    {
+                        var val = yMax * i / ySteps;
+                        <div class="cost-y-label">$@val.ToString(val < 0.001m ? "F6" : val < 1m ? "F4" : "F2")</div>
+                    }
+                </div>
+
+                @* ── Bars ───────────────────────────────── *@
+                <div class="cost-bars-container">
+                    @* Grid lines *@
+                    <div class="cost-gridlines">
+                        @for (var i = ySteps; i >= 0; i--)
+                        {
+                            <div class="cost-gridline"></div>
+                        }
+                    </div>
+
+                    @* Bar columns *@
+                    @foreach (var date in chartData.Dates)
+                    {
+                        var dayPoints = chartData.Points.Where(p => p.Date == date).ToList();
+                        var totalDayCost = dayPoints.Sum(p => p.Cost);
+                        <div class="cost-bar-col" title="@date.ToString("MMM dd") — $@totalDayCost.ToString("F4")">
+                            @foreach (var point in dayPoints.OrderBy(p => p.ModelCode))
+                            {
+                                var pct = chartData.MaxCost > 0
+                                    ? (double)(point.Cost / yMax) * 100
+                                    : 0;
+                                var color = chartData.ModelColors.TryGetValue(point.ModelCode, out var c) ? c : "#a3a3a3";
+                                <div class="cost-bar"
+                                     style="height:@Math.Max(pct, 0.5)%;background:@color"
+                                     title="@point.ModelName ($@point.Cost.ToString("F4"))">
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @* ── X-axis (dates) ─────────────────────────── *@
+            <div class="cost-x-axis">
+                <div class="cost-x-spacer"></div>
+                @{
+                    var skip = Math.Max(1, chartData.Dates.Count / 15);
+                }
+                @foreach (var date in chartData.Dates)
+                {
+                    var show = date.Day == 1 || date.Day % skip == 0 || date == chartData.Dates.Last();
+                    <div class="cost-x-label @(show ? "" : "cost-x-hidden")">@date.ToString("MMM dd")</div>
+                }
+            </div>
+        }
+        else if (_loading)
+        {
+            <div class="empty-state">
+                <div class="icon">
+                    <Heroicon Name="clock" Size="48" />
+                </div>
+                <p>Loading chart data...</p>
+            </div>
+        }
+        else if (_loadError is not null)
+        {
+            <div class="empty-state">
+                <div class="icon">
+                    <Heroicon Name="banknotes" Size="48" />
+                </div>
+                <p>@_loadError</p>
+            </div>
+        }
+        else
+        {
+            <div class="empty-state">
+                <div class="icon">
+                    <Heroicon Name="banknotes" Size="48" />
+                </div>
+                <p>No usage data for this period.</p>
+            </div>
+        }
+
+        @if (_loading)
+        {
+            <div class="cost-loading-overlay">
+                <div class="cost-loading-spinner"></div>
+            </div>
+        }
+    </div>
+
+    @* ── Legend ────────────────────────────────────────── *@
+    @if (chartData is not null && chartData.ModelCodes.Count > 0)
+    {
+        <div class="cost-legend">
+            @foreach (var mc in chartData.ModelCodes)
+            {
+                var color = chartData.ModelColors.TryGetValue(mc, out var c) ? c : "#a3a3a3";
+                <div class="cost-legend-item">
+                    <span class="cost-legend-swatch" style="background:@color"></span>
+                    <span class="cost-legend-label">@mc</span>
+                </div>
+            }
+        </div>
+    }
+
+    @* ── Summary stats below chart ────────────────────── *@
+    @if (chartData is not null)
+    {
+        var totalCost = chartData.Points.Sum(p => p.Cost);
+        var daysWithData = chartData.Points.Select(p => p.Date).Distinct().Count();
+        var modelCount = chartData.ModelCodes.Count;
+        <div class="cost-summary">
+            <div class="cost-summary-item">
+                <span class="cost-summary-label">Total Cost</span>
+                <span class="cost-summary-value">$@totalCost.ToString("F4")</span>
+            </div>
+            <div class="cost-summary-item">
+                <span class="cost-summary-label">Days with Usage</span>
+                <span class="cost-summary-value">@daysWithData / @chartData.Dates.Count</span>
+            </div>
+            <div class="cost-summary-item">
+                <span class="cost-summary-label">Models Used</span>
+                <span class="cost-summary-value">@modelCount</span>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private int _year;
+    private int _month;
+    private string FilterModelCode = "*";
+    private string FilterKeyPrefix = "*";
+    private bool _loading = true;
+    private string? _loadError;
+
+    private bool IsChartDisabled => _loading || _loadError is not null;
+
+    private DashboardService.CostChartData? chartData;
+    private List<DashboardService.ModelFilterItem>? modelFilterList;
+    private List<DashboardService.ApiKeyView>? apiKeyList;
+
+    private string CurrentMonthLabel =>
+        new DateTime(_year, _month, 1).ToString("MMMM yyyy");
+
+    protected override async Task OnInitializedAsync()
+    {
+        var now = UserTime.ToLocal(DateTimeOffset.UtcNow);
+        _year = now.Year;
+        _month = now.Month;
+        await LoadFilters();
+        await LoadChart();
+    }
+
+    private async Task LoadFilters()
+    {
+        modelFilterList = await Svc.GetModelFilterListAsync();
+        apiKeyList = await Svc.GetApiKeysAsync();
+    }
+
+    private async Task LoadChart()
+    {
+        if (_loading) return;
+        _loading = true;
+        _loadError = null;
+        try
+        {
+            chartData = await Svc.GetCostChartDataAsync(_year, _month, FilterModelCode, FilterKeyPrefix);
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Chart data could not be loaded: {ex.Message}";
+            chartData = null;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OnFilterChanged()
+    {
+        await LoadChart();
+    }
+
+    private async Task PrevMonth()
+    {
+        _month--;
+        if (_month < 1) { _month = 12; _year--; }
+        await LoadChart();
+    }
+
+    private async Task NextMonth()
+    {
+        _month++;
+        if (_month > 12) { _month = 1; _year++; }
+        await LoadChart();
+    }
+
+    [Inject] private DashboardService Svc { get; set; } = default!;
+}

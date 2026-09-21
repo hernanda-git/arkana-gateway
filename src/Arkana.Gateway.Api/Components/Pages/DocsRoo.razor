@@ -1,0 +1,11 @@
+@page "/docs/roo"
+@layout PublicDocsLayout
+<PageTitle>Roo Code · ARKANA GATEWAY</PageTitle>
+<header class="docs-page-header"><div><span class="docs-kicker">Panduan Agent · Roo Code</span><h1>Roo Code</h1><p>Gunakan Custom OpenAI-compatible Provider Roo Code untuk mengarahkan Request Agent ke ARKANA GATEWAY.</p></div><span class="docs-agent-mark"><Heroicon Name="wrench-screwdriver" Size="28" /></span></header>
+<section class="docs-prose-section"><h2>Status</h2><p><span class="badge">Conditional</span> Field UI dan dukungan Tool dapat berubah antar versi extension. Halaman ini memberikan kontrak Gateway, bukan klaim schema UI yang tidak diverifikasi.</p></section>
+<section class="docs-prose-section"><h2>Provider contract</h2><pre class="docs-code"><code>Base URL: https://gateway.arkana.dev/v1
+Model: gpt-5.5
+Authentication: Secret store Roo Code
+Protocol: OpenAI-compatible</code></pre></section>
+<section class="docs-prose-section"><h2>Setup dan verification</h2><ol class="docs-list"><li>Buka Provider settings Roo Code.</li><li>Pilih OpenAI-compatible atau Custom Provider jika tersedia.</li><li>Masukkan Base URL dan model.</li><li>Simpan API key di Secret field.</li><li>Reload extension dan jalankan text marker.</li><li>Jalankan Tool yang membuat artifact, lalu baca artifact di luar Agent.</li><li>Periksa Provider, Model, Path, dan IsError di Gateway Logs.</li></ol></section>
+<section class="docs-callout"><Heroicon Name="information-circle" Size="21" /><div><strong>Jangan menebak nama field.</strong><p>Gunakan Settings dan help dari versi Roo Code yang terpasang. Jika custom Endpoint tidak tersedia, tandai Not direct untuk versi tersebut.</p></div></section>

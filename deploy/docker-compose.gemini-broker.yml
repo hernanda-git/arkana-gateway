@@ -1,0 +1,75 @@
+# Phase 6 Gemini subscription broker overlay.
+# This file is intentionally separate from deploy/docker-compose.yml: it is a
+# non-destructive template and must be reviewed before activation.
+# CLIProxyAPI v7.2.146 was verified by the contract gate at this immutable digest.
+x-gemini-broker-image: &gemini_broker_image ${GEMINI_BROKER_IMAGE_REPOSITORY:-eceasy/cli-proxy-api}@${GEMINI_BROKER_IMAGE_DIGEST:?GEMINI_BROKER_IMAGE_DIGEST is required and must be a 64-character digest}
+x-gemini-broker-environment: &gemini_broker_environment
+  ANTIGRAVITY_OAUTH_CLIENT_ID: ${ANTIGRAVITY_OAUTH_CLIENT_ID:?ANTIGRAVITY_OAUTH_CLIENT_ID is required}
+  ANTIGRAVITY_OAUTH_CLIENT_SECRET: ${ANTIGRAVITY_OAUTH_CLIENT_SECRET:?ANTIGRAVITY_OAUTH_CLIENT_SECRET is required}
+  ANTIGRAVITY_OAUTH_REDIRECT_URI: ${ANTIGRAVITY_OAUTH_REDIRECT_URI:?ANTIGRAVITY_OAUTH_REDIRECT_URI is required}
+  CLIPROXY_CONFIG_PATH: /etc/cliproxy/config.yaml
+  CLIPROXY_CONFIG_TEMPLATE: /usr/local/share/cliproxy/config.template.yaml
+
+services:
+  gemini-broker-a:
+    image: *gemini_broker_image
+    environment:
+      <<: *gemini_broker_environment
+      CLIPROXY_MANAGEMENT_KEY: ${GEMINI_BROKER_A_MANAGEMENT_KEY:?GEMINI_BROKER_A_MANAGEMENT_KEY is required}
+    profiles: [gemini-broker]
+    entrypoint: ["/usr/local/bin/cliproxy-entrypoint"]
+    expose:
+      - "8317"
+    volumes:
+      - gemini_slot_a_auth:/root/.cli-proxy-api
+      - gemini_slot_a_config:/etc/cliproxy
+      - ./gemini-broker/cliproxy-entrypoint.sh:/usr/local/bin/cliproxy-entrypoint:ro
+      - ./gemini-broker/config.template.yaml:/usr/local/share/cliproxy/config.template.yaml:ro
+    command: ["-config", "/etc/cliproxy/config.yaml"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --max-time 3 http://127.0.0.1:8317/ >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    restart: unless-stopped
+    networks: [arkana-net]
+
+  gemini-broker-b:
+    image: *gemini_broker_image
+    environment:
+      <<: *gemini_broker_environment
+      CLIPROXY_MANAGEMENT_KEY: ${GEMINI_BROKER_B_MANAGEMENT_KEY:?GEMINI_BROKER_B_MANAGEMENT_KEY is required}
+    profiles: [gemini-broker]
+    entrypoint: ["/usr/local/bin/cliproxy-entrypoint"]
+    expose:
+      - "8317"
+    volumes:
+      - gemini_slot_b_auth:/root/.cli-proxy-api
+      - gemini_slot_b_config:/etc/cliproxy
+      - ./gemini-broker/cliproxy-entrypoint.sh:/usr/local/bin/cliproxy-entrypoint:ro
+      - ./gemini-broker/config.template.yaml:/usr/local/share/cliproxy/config.template.yaml:ro
+    command: ["-config", "/etc/cliproxy/config.yaml"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --max-time 3 http://127.0.0.1:8317/ >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    restart: unless-stopped
+    networks: [arkana-net]
+
+volumes:
+  gemini_slot_a_auth:
+    name: arkana-gemini-slot-a-auth
+  gemini_slot_a_config:
+    name: arkana-gemini-slot-a-config
+  gemini_slot_b_auth:
+    name: arkana-gemini-slot-b-auth
+  gemini_slot_b_config:
+    name: arkana-gemini-slot-b-config
+
+networks:
+  arkana-net:
+    external: true
+    name: ${GEMINI_BROKER_NETWORK:-arkana-dev_arkana-net}

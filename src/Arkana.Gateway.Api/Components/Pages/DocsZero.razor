@@ -1,0 +1,23 @@
+@page "/docs/zero"
+@layout PublicDocsLayout
+
+<PageTitle>Pengaturan Zero · ARKANA GATEWAY</PageTitle>
+
+<header class="docs-page-header"><div><span class="docs-kicker">Panduan Agent · 03</span><h1>Zero</h1><p>Hubungkan Zero ke ARKANA GATEWAY melalui Custom OpenAI-compatible Provider, jika versi Zero yang terpasang mendukung Custom Endpoint.</p></div><span class="docs-agent-mark"><Heroicon Name="bolt" Size="28" /></span></header>
+
+<section class="docs-prose-section"><h2>Status integrasi</h2><p><span class="badge">Conditional</span> Nama command, schema, dan lokasi credential Zero dapat berbeda antar versi. Halaman ini menetapkan nilai Gateway yang benar, tetapi tidak menebak field client yang belum diverifikasi.</p></section>
+
+<section class="docs-prose-section"><h2>Nilai Gateway</h2><div class="docs-definition-list"><div><dt>Provider</dt><dd>Custom OpenAI-compatible</dd></div><div><dt>Provider name</dt><dd><code>arkana-gateway</code></dd></div><div><dt>Base URL</dt><dd><code>https://gateway.arkana.dev/v1</code></dd></div><div><dt>Model</dt><dd>ID persis dari <code>GET /v1/models</code></dd></div><div><dt>Credential</dt><dd>Credential store atau environment variable</dd></div></div></section>
+
+<section class="docs-prose-section"><h2>Periksa schema client</h2><pre class="docs-code"><code>zero --help
+zero providers --help
+zero providers add --help</code></pre><p>Gunakan nama command dan field yang benar-benar tersedia pada binary Zero. Jangan menjalankan contoh dari versi lain tanpa mencocokkan output help.</p></section>
+
+<section class="docs-prose-section"><h2>Windows</h2><pre class="docs-code"><code># PowerShell, simpan value melalui Secret store atau environment lokal
+$env:GATEWAY_API_KEY = "YOUR_GATEWAY_API_KEY"
+
+# Cek Endpoint tanpa menampilkan response credential
+curl.exe -fsS https://gateway.arkana.dev/v1/models `
+  -H "Authorization: Bearer YOUR_GATEWAY_API_KEY"</code></pre><p class="docs-note">Placeholder di atas bukan API key. Jangan menggantinya di halaman publik atau commit hasil konfigurasi ke repository.</p></section>
+
+<section class="docs-prose-section"><h2>Acceptance test</h2><ol class="docs-list"><li>Provider tersimpan dan menjadi active.</li><li><code>/v1/models</code> mengembalikan model yang diizinkan.</li><li>Text marker kembali persis.</li><li>Agent menghasilkan real Tool event.</li><li>Artifact dibuat dan dibaca kembali.</li><li>Gateway Logs menunjukkan Provider, Model, Path, dan <code>IsError: false</code>.</li></ol></section>

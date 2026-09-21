@@ -1,0 +1,43 @@
+@page "/docs"
+@layout PublicDocsLayout
+
+<PageTitle>Dokumentasi Agent · ARKANA GATEWAY</PageTitle>
+
+<section class="docs-hero">
+    <div class="docs-eyebrow"><span class="docs-status-dot"></span> Dokumentasi</div>
+    <h1>Satu gateway untuk semua Agent coding.</h1>
+    <p class="docs-lede">Hubungkan Codex, OpenCode, Zero, Kilo Code, dan klien OpenAI-compatible lainnya ke ARKANA GATEWAY menggunakan API key dengan cakupan terbatas, Endpoint yang stabil, dan katalog model yang dapat Anda kendalikan.</p>
+    <div class="docs-hero-actions">
+        <a class="btn btn-primary" href="/docs/codex">Mulai dengan Codex <Heroicon Name="arrow-right" Size="16" /></a>
+        <a class="btn" href="/docs/api">Lihat Referensi API</a>
+    </div>
+</section>
+
+<section class="docs-section">
+    <div class="docs-section-heading">
+        <div><span class="docs-kicker">Detail koneksi</span><h2>Tiga nilai yang dibutuhkan setiap klien</h2></div>
+        <span class="badge badge-green"><span class="badge-dot badge-dot-green"></span> OpenAI-compatible</span>
+    </div>
+    <div class="docs-grid docs-grid-3">
+        <article class="docs-card"><div class="docs-card-icon base-url"><Heroicon Name="server" Size="25" /></div><h3>Base URL</h3><code class="docs-inline-code">https://gateway.arkana.dev/v1</code><p>Gunakan base <code>/v1</code>, bukan host tanpa path, untuk klien OpenAI-compatible.</p></article>
+        <article class="docs-card"><div class="docs-card-icon green"><Heroicon Name="key" Size="19" /></div><h3>API key terbatas</h3><p class="docs-inline-code">Authorization header: Bearer API key</p><p>Minta API key kepada administrator. Simpan key di Secret store atau environment Agent.</p></article>
+        <article class="docs-card"><div class="docs-card-icon blue"><Heroicon Name="cube" Size="19" /></div><h3>ID model</h3><code class="docs-inline-code">GET /v1/models</code><p>Pilih ID model yang persis dari katalog yang tersedia untuk key Anda.</p></article>
+    </div>
+</section>
+
+<section class="docs-section">
+    <div class="docs-section-heading"><div><span class="docs-kicker">Pilih klien</span><h2>Panduan untuk setiap Agent</h2></div></div>
+    <div class="docs-grid docs-grid-2">
+        <a class="docs-guide-card" href="/docs/codex"><span class="docs-guide-icon"><Heroicon Name="cpu-chip" Size="20" /></span><span><strong>Codex CLI</strong><small>Pengaturan konteks OAuth langganan dan Endpoint gateway.</small></span><Heroicon Name="chevron-right" Size="17" /></a>
+        <a class="docs-guide-card" href="/docs/opencode"><span class="docs-guide-icon"><Heroicon Name="command-line" Size="20" /></span><span><strong>OpenCode</strong><small>Konfigurasi Provider JSONC, model, dan pemanggilan Tool.</small></span><Heroicon Name="chevron-right" Size="17" /></a>
+        <a class="docs-guide-card" href="/docs/zero"><span class="docs-guide-icon"><Heroicon Name="bolt" Size="20" /></span><span><strong>Zero</strong><small>Provider OpenAI-compatible kustom dan pengaturan Secret di Windows.</small></span><Heroicon Name="chevron-right" Size="17" /></a>
+        <a class="docs-guide-card" href="/docs/kilo"><span class="docs-guide-icon"><Heroicon Name="wrench-screwdriver" Size="20" /></span><span><strong>Kilo Code</strong><small>Alur Provider kustom, deteksi model, dan pengaturan Tool.</small></span><Heroicon Name="chevron-right" Size="17" /></a>
+        <a class="docs-guide-card" href="/docs/agents"><span class="docs-guide-icon"><Heroicon Name="squares-2x2" Size="20" /></span><span><strong>Agent lainnya</strong><small>Cline, Roo Code, Continue, Aider, dan LiteLLM</small></span><Heroicon Name="chevron-right" Size="17" /></a>
+        <a class="docs-guide-card" href="/docs/autonomous-setup"><span class="docs-guide-icon"><Heroicon Name="sparkles" Size="20" /></span><span><strong>Autonomous Setup</strong><small>Prompt untuk Agent melakukan setup Gateway end-to-end.</small></span><Heroicon Name="chevron-right" Size="17" /></a>
+    </div>
+</section>
+
+<section class="docs-callout">
+    <Heroicon Name="shield-check" Size="21" />
+    <div><strong>Kredensial tetap privat.</strong><p>Halaman ini hanya berisi informasi pengaturan. Jangan pernah membagikan API key, token OAuth, atau cookie akun. Administrator gateway mengatur cakupan key dan akses model.</p></div>
+</section>

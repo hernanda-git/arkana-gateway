@@ -1,0 +1,318 @@
+@page "/settings"
+@rendermode InteractiveServer
+@using Arkana.Domain.Entities
+@inject RateLimitConfigService RateCfg
+@inject AuthService AuthSvc
+@inject IJSRuntime Js
+
+<PageTitle>Settings</PageTitle>
+
+<div class="settings-layout">
+
+    @* ── Theme Section ──────────────────────────────────── *@
+    <div class="settings-section">
+        <div class="settings-section-header">
+            <Heroicon Name="cog-6-tooth" Size="20" />
+            <div>
+                <h3>Appearance</h3>
+                <p class="settings-section-desc">Customize the dashboard look and feel.</p>
+            </div>
+        </div>
+
+        <div class="settings-field">
+            <label class="settings-label">Mode</label>
+            <div class="settings-control">
+                <select class="settings-select" @bind="_selectedMode">
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                </select>
+                <span class="settings-hint">Choose between light and dark color scheme.</span>
+            </div>
+        </div>
+
+        <div class="settings-field">
+            <label class="settings-label">Theme</label>
+            <div class="settings-control">
+                <select class="settings-select" @bind="_selectedTheme">
+                    <option value="winter">Winter — Cool Blue</option>
+                    <option value="ocean" disabled>Ocean — Deep Blue (coming soon)</option>
+                    <option value="forest" disabled>Forest — Green (coming soon)</option>
+                    <option value="sunset" disabled>Sunset — Warm Orange (coming soon)</option>
+                    <option value="midnight" disabled>Midnight — Dark Mode (coming soon)</option>
+                </select>
+                <span class="settings-hint">Currently only <strong>Winter</strong> theme is available. More themes will be added in future updates.</span>
+            </div>
+        </div>
+
+        <div class="settings-field">
+            <label class="settings-label">Preview</label>
+            <div class="settings-control">
+                <div class="theme-preview">
+                    <div class="theme-preview-sidebar">
+                        <div class="theme-preview-brand"></div>
+                        <div class="theme-preview-nav"></div>
+                        <div class="theme-preview-nav"></div>
+                        <div class="theme-preview-nav"></div>
+                    </div>
+                    <div class="theme-preview-main">
+                        <div class="theme-preview-topbar"></div>
+                        <div class="theme-preview-content">
+                            <div class="theme-preview-card"></div>
+                            <div class="theme-preview-card"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* ── Rate Limit Section ─────────────────────────────── *@
+    <div class="settings-section">
+        <div class="settings-section-header">
+            <Heroicon Name="clock" Size="20" />
+            <div>
+                <h3>Rate Limiting</h3>
+                <p class="settings-section-desc">
+                    Global rate limit defaults (SEC-ARKANA-005). Changes apply within ~30 seconds.
+                    Per-key overrides can be set in each <a href="/api-keys" style="color:var(--primary)">API Key's edit modal</a>.
+                </p>
+            </div>
+        </div>
+
+        @if (!_loaded)
+        {
+            <p style="color:var(--text-muted)">Loading…</p>
+        }
+        else
+        {
+            <div class="settings-field">
+                <label class="settings-label">Enable</label>
+                <div class="settings-control">
+                    <label class="toggle" style="margin-top:4px">
+                        <input type="checkbox" @bind="_enabled" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="settings-hint">Master switch. When disabled, all rate limits are bypassed.</span>
+                </div>
+            </div>
+
+            <div class="settings-field">
+                <label class="settings-label">Requests / Minute</label>
+                <div class="settings-control">
+                    <input type="number" class="settings-input" @bind="_defaultRpm" min="1" max="100000" />
+                    <span class="settings-hint">Default RPM per API key. Overridable per key.</span>
+                </div>
+            </div>
+
+            <div class="settings-field">
+                <label class="settings-label">Tokens / Minute</label>
+                <div class="settings-control">
+                    <input type="number" class="settings-input" @bind="_defaultTpm" min="1" max="100000000" />
+                    <span class="settings-hint">Default TPM per API key (sliding window).</span>
+                </div>
+            </div>
+
+            <div class="settings-field">
+                <label class="settings-label">Max Concurrent</label>
+                <div class="settings-control">
+                    <input type="number" class="settings-input" @bind="_defaultMaxConcurrent" min="1" max="1000" />
+                    <span class="settings-hint">Max in-flight requests per API key.</span>
+                </div>
+            </div>
+
+            <div class="settings-field" style="border-bottom:none;margin-bottom:0">
+                <label class="settings-label"></label>
+                <div class="settings-control">
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <button class="btn btn-primary" @onclick="SaveRateLimitConfig" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
+                        @if (_saved)
+                        {
+                            <span style="font-size:13px;color:var(--green)"><span class="material-symbols-outlined">check_circle</span> Saved</span>
+                        }
+                        @if (_errorMsg is not null)
+                        {
+                            <span style="font-size:13px;color:var(--red)">@_errorMsg</span>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    @* ── User Management Section (make/remove admin) ── *@
+    <div class="settings-section">
+        <div class="settings-section-header">
+            <Heroicon Name="user-group" Size="20" />
+            <div>
+                <h3>User Management</h3>
+                <p class="settings-section-desc">
+                    Promote or demote dashboard users. <strong>Make Admin</strong> grants full
+                    access to every page and menu; <strong>Remove Admin</strong> drops them back
+                    to a standard User. Role changes apply immediately to the stored account and
+                    take effect on that user's next login.
+                </p>
+            </div>
+        </div>
+
+        @if (!_usersLoaded)
+        {
+            <p style="color:var(--text-muted)">Loading users…</p>
+        }
+        else if (_users.Count == 0)
+        {
+            <p style="color:var(--text-muted)">No users found.</p>
+        }
+        else
+        {
+            <div class="um-list">
+                @foreach (var u in _users)
+                {
+                    <div class="um-row">
+                        <div class="um-id">
+                            <div class="um-name">@u.Username</div>
+                            <div class="um-email">@(u.Email ?? u.Username)</div>
+                        </div>
+                        <span class="badge @GetRoleBadgeClass(u.Role)">@u.Role</span>
+                        <div class="um-action">
+                            @if (u.Role == "Admin")
+                            {
+                                <button class="btn btn-sm" @onclick="@(() => SetRole(u, "User"))" disabled="@_roleSaving">
+                                    <span class="material-symbols-outlined" style="font-size:16px">remove_moderator</span> Remove Admin
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-primary" @onclick="@(() => SetRole(u, "Admin"))" disabled="@_roleSaving">
+                                    <span class="material-symbols-outlined" style="font-size:16px">shield_person</span> Make Admin
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        @if (_umMessage is not null)
+        {
+            <div class="alert @(_umMessageType == "success" ? "alert-success" : "alert-error")" style="margin-top:12px">@_umMessage</div>
+        }
+    </div>
+
+</div>
+
+@code {
+    private string _selectedMode = "light";
+    private string _selectedTheme = "winter";
+
+    private bool _loaded;
+    private bool _enabled = true;
+    private int _defaultRpm = 60;
+    private int _defaultTpm = 1_000_000;
+    private int _defaultMaxConcurrent = 5;
+    private bool _saving;
+    private bool _saved;
+    private string? _errorMsg;
+
+    // User management (make/remove admin)
+    private List<DashboardUser> _users = new();
+    private bool _usersLoaded;
+    private bool _roleSaving;
+    private string? _umMessage;
+    private string _umMessageType = "success";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadConfig();
+        await LoadUsers();
+    }
+
+    private async Task LoadUsers()
+    {
+        try
+        {
+            _users = await AuthSvc.GetAllAsync();
+        }
+        catch (Exception ex)
+        {
+            _umMessage = $"Failed to load users: {ex.Message}";
+            _umMessageType = "error";
+        }
+        finally
+        {
+            _usersLoaded = true;
+        }
+    }
+
+    private async Task SetRole(DashboardUser user, string newRole)
+    {
+        _roleSaving = true;
+        _umMessage = null;
+        try
+        {
+            await AuthSvc.UpdateRoleAsync(user.Id, newRole);
+            // Reflect immediately in the local list (persisted change takes
+            // effect for the target user on their next login).
+            user.Role = newRole;
+            _umMessage = newRole == "Admin"
+                ? $"'{user.Username}' is now an Admin."
+                : $"Admin removed from '{user.Username}'.";
+            _umMessageType = "success";
+        }
+        catch (Exception ex)
+        {
+            _umMessage = $"Error: {ex.Message}";
+            _umMessageType = "error";
+        }
+        finally
+        {
+            _roleSaving = false;
+        }
+    }
+
+    private static string GetRoleBadgeClass(string role) => role switch
+    {
+        "Admin" => "badge-amber",
+        "User" => "badge-blue",
+        "Portal" => "badge-purple",
+        _ => "badge-gray"
+    };
+
+    private async Task LoadConfig()
+    {
+        try
+        {
+            _enabled = await RateCfg.GetEnabledAsync();
+            _defaultRpm = await RateCfg.GetDefaultRpmAsync();
+            _defaultTpm = await RateCfg.GetDefaultTpmAsync();
+            _defaultMaxConcurrent = await RateCfg.GetDefaultMaxConcurrentAsync();
+            _loaded = true;
+        }
+        catch (Exception ex)
+        {
+            _errorMsg = $"Failed to load: {ex.Message}";
+        }
+    }
+
+    private async Task SaveRateLimitConfig()
+    {
+        _saving = true;
+        _saved = false;
+        _errorMsg = null;
+        try
+        {
+            await RateCfg.SaveGlobalConfigAsync(
+                _enabled,
+                Math.Max(1, _defaultRpm),
+                Math.Max(1, _defaultTpm),
+                Math.Max(1, _defaultMaxConcurrent));
+            _saved = true;
+        }
+        catch (Exception ex)
+        {
+            _errorMsg = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

@@ -1,0 +1,251 @@
+@page "/admin/users"
+@rendermode InteractiveServer
+@using Arkana.Domain.Entities
+@inject AuthService AuthSvc
+@inject IJSRuntime Js
+
+<PageTitle>Users</PageTitle>
+
+<div class="section-header">
+    <h2>User Management</h2>
+    <button class="btn btn-primary" @onclick="OpenCreate">+ New User</button>
+</div>
+
+@if (!string.IsNullOrEmpty(_message))
+{
+    <div class="alert @(_messageType == "success" ? "alert-success" : "alert-error")">
+        @_message
+        <button class="btn-icon" @onclick="() => _message = null" style="margin-left:auto"><span class="material-symbols-outlined">close</span></button>
+    </div>
+}
+
+<div class="table-wrap">
+    <table class="data-table">
+        <thead>
+            <tr><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Logins</th><th></th></tr>
+        </thead>
+        <tbody>
+            @if (_users is not null && _users.Count > 0)
+            {
+                @foreach (var u in _users)
+                {
+                    <tr>
+                        <td style="font-weight:500">@u.Username</td>
+                        <td>@(u.Email ?? "—")</td>
+                        <td>
+                            <span class="badge @GetRoleBadgeClass(u.Role)">@u.Role</span>
+                        </td>
+                        <td>
+                            <span class="badge @(u.IsActive ? "badge-green" : "badge-gray")">
+                                <span class="badge-dot @(u.IsActive ? "badge-dot-green" : "badge-dot-gray")"></span>
+                                @(u.IsActive ? "Active" : "Inactive")
+                            </span>
+                        </td>
+                        <td style="font-size:12px;color:var(--text-secondary)">
+                            @(u.LastLoginAt?.ToString("MMM dd, HH:mm") ?? "Never")
+                        </td>
+                        <td style="font-size:12px">@u.LoginCount</td>
+                        <td style="text-align:right;white-space:nowrap">
+                            <button class="btn-icon" @onclick="() => OpenEditRole(u)" title="Change Role" style="margin-right:4px">
+                                <Heroicon Name="pencil-square" Size="16" />
+                            </button>
+                            <button class="btn-icon btn-danger" @onclick="() => ConfirmDelete(u)" title="Delete" style="margin-left:4px">
+                                <Heroicon Name="trash" Size="16" />
+                            </button>
+                        </td>
+                    </tr>
+                }
+            }
+            else
+            {
+                <tr><td colspan="7"><div class="empty-state"><p>No users found.</p></div></td></tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@* ── Create Modal ───────────────────────────────────────── *@
+<Modal Show="@_showCreate" Title="Create User" Icon="user-group" Size="ModalSize.Default" OnClose="CloseModals">
+    <Body>
+        <div class="form-group">
+            <label>Username</label>
+            <input type="text" @bind="_newUsername" placeholder="e.g. admin" />
+        </div>
+        <div class="form-group">
+            <label>Email (optional)</label>
+            <input type="email" @bind="_newEmail" placeholder="user@example.com" />
+        </div>
+        <div class="form-group">
+            <label>Password</label>
+            <input type="password" @bind="_newPassword" placeholder="Minimum 6 characters" />
+        </div>
+        <div class="form-group">
+            <label>Role</label>
+            <select @bind="_newRole">
+                <option value="Admin">Admin</option>
+                <option value="User">User</option>
+            </select>
+        </div>
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseModals">Cancel</button>
+        <button class="btn btn-primary" @onclick="CreateUser" disabled="@_saving">
+            @(_saving ? "Creating…" : "Create")
+        </button>
+    </Footer>
+</Modal>
+
+@* ── Edit Role Modal ────────────────────────────────────── *@
+<Modal Show="@_showEditRole" Title="@($"Change Role — {_editingUser?.Username}")" Icon="pencil-square" Size="ModalSize.Default" OnClose="CloseModals">
+    <Body>
+        <div class="form-group">
+            <label>Role</label>
+            <select @bind="_editRoleValue">
+                <option value="Admin">Admin</option>
+                <option value="User">User</option>
+            </select>
+        </div>
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseModals">Cancel</button>
+        <button class="btn btn-primary" @onclick="SaveRole" disabled="@_saving">
+            @(_saving ? "Saving…" : "Save")
+        </button>
+    </Footer>
+</Modal>
+
+@* ── Delete Confirmation ────────────────────────────────── *@
+<ConfirmDialog Show="@_showDeleteConfirm" Title="Delete User" Icon="trash"
+               Message="@($"Delete '{_deletingUser?.Username}'? This action cannot be undone.")"
+               ConfirmText="Delete" ConfirmClass="btn-danger" OnConfirm="DeleteUser" OnCancel="CloseModals" />
+
+@code {
+    private List<DashboardUser>? _users;
+    private string? _message;
+    private string _messageType = "success";
+    private bool _saving;
+
+    // Create
+    private bool _showCreate;
+    private string _newUsername = "";
+    private string _newEmail = "";
+    private string _newPassword = "";
+    private string _newRole = "User";
+
+    // Edit role
+    private bool _showEditRole;
+    private DashboardUser? _editingUser;
+    private string _editRoleValue = "";
+
+    // Delete
+    private bool _showDeleteConfirm;
+    private DashboardUser? _deletingUser;
+
+    protected override async Task OnInitializedAsync() => await LoadUsers();
+
+    private async Task LoadUsers()
+    {
+        _users = await AuthSvc.GetAllAsync();
+    }
+
+    private void OpenCreate()
+    {
+        _newUsername = "";
+        _newEmail = "";
+        _newPassword = "";
+        _newRole = "User";
+        _showCreate = true;
+    }
+
+    private async Task CreateUser()
+    {
+        if (string.IsNullOrWhiteSpace(_newUsername) || string.IsNullOrWhiteSpace(_newPassword))
+        {
+            ShowMessage("Username and password are required.", "error");
+            return;
+        }
+        try
+        {
+            _saving = true;
+            await AuthSvc.CreateAsync(_newUsername, _newPassword, _newRole);
+            _showCreate = false;
+            await LoadUsers();
+            ShowMessage($"User '{_newUsername}' created.", "success");
+        }
+        catch (Exception ex)
+        {
+            ShowMessage($"Error: {ex.Message}", "error");
+        }
+        finally { _saving = false; }
+    }
+
+    private void OpenEditRole(DashboardUser user)
+    {
+        _editingUser = user;
+        _editRoleValue = user.Role;
+        _showEditRole = true;
+    }
+
+    private async Task SaveRole()
+    {
+        if (_editingUser is null) return;
+        try
+        {
+            _saving = true;
+            await AuthSvc.UpdateRoleAsync(_editingUser.Id, _editRoleValue);
+            _showEditRole = false;
+            await LoadUsers();
+            ShowMessage($"Role updated for '{_editingUser.Username}'.", "success");
+        }
+        catch (Exception ex)
+        {
+            ShowMessage($"Error: {ex.Message}", "error");
+        }
+        finally { _saving = false; }
+    }
+
+    private void ConfirmDelete(DashboardUser user)
+    {
+        _deletingUser = user;
+        _showDeleteConfirm = true;
+    }
+
+    private async Task DeleteUser()
+    {
+        if (_deletingUser is null) return;
+        try
+        {
+            _saving = true;
+            await AuthSvc.DeleteAsync(_deletingUser.Id);
+            _showDeleteConfirm = false;
+            await LoadUsers();
+            ShowMessage($"User '{_deletingUser.Username}' deleted.", "success");
+        }
+        catch (Exception ex)
+        {
+            ShowMessage($"Error: {ex.Message}", "error");
+        }
+        finally { _saving = false; }
+    }
+
+    private void CloseModals()
+    {
+        _showCreate = false;
+        _showEditRole = false;
+        _showDeleteConfirm = false;
+    }
+
+    private void ShowMessage(string msg, string type)
+    {
+        _message = msg;
+        _messageType = type;
+    }
+
+    private static string GetRoleBadgeClass(string role) => role switch
+    {
+        "Admin" => "badge-amber",
+        "User" => "badge-blue",
+        "Portal" => "badge-purple",
+        _ => "badge-gray"
+    };
+}

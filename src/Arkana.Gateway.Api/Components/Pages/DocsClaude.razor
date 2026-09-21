@@ -1,0 +1,7 @@
+@page "/docs/claude"
+@layout PublicDocsLayout
+<PageTitle>Claude Code · ARKANA GATEWAY</PageTitle>
+<header class="docs-page-header"><div><span class="docs-kicker">Status Protocol · Claude Code</span><h1>Claude Code</h1><p>Claude Code menggunakan protocol Anthropic-native. Halaman ini menjelaskan kenapa direct setup ke OpenAI-compatible Gateway tidak diklaim verified.</p></div><span class="docs-agent-mark"><Heroicon Name="information-circle" Size="28" /></span></header>
+<section class="docs-prose-section"><h2>Status</h2><p><span class="badge">Not direct</span> Jangan mengarahkan Claude Code langsung ke <code>https://gateway.arkana.dev/v1</code> kecuali tersedia bridge Anthropic-compatible yang sudah diuji.</p></section>
+<section class="docs-prose-section"><h2>Yang dibutuhkan untuk integrasi</h2><ul class="docs-list"><li>Anthropic-compatible Endpoint yang menerima protocol Claude Code.</li><li>Authentication mapping yang tidak mengekspos credential.</li><li>Streaming dan Tool schema translation.</li><li>Real Tool-loop verification dan Gateway Logs.</li></ul></section>
+<section class="docs-callout"><Heroicon Name="shield-check" Size="21" /><div><strong>Jangan gunakan config OpenAI-compatible secara langsung.</strong><p>Jika bridge resmi atau internal sudah tersedia, dokumentasikan sebagai integration terpisah dan verifikasi dengan acceptance test lengkap.</p></div></section>

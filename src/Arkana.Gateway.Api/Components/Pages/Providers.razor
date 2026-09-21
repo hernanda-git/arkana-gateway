@@ -1,0 +1,940 @@
+@page "/providers"
+@attribute [Authorize(Policy = "OAuthManagement")]
+@rendermode InteractiveServer
+@using Arkana.Gateway.Api.Services
+@using Arkana.Domain.Interfaces
+@using Microsoft.AspNetCore.Authorization
+@inject UserTimeService UserTime
+@inject IJSRuntime Js
+
+<PageTitle>Providers</PageTitle>
+
+@* ── OAuth Connections Section ─────────────────────────── *@
+<div class="section-header" style="margin-bottom:12px">
+    <h2>OAuth Connections</h2>
+</div>
+
+<div class="oauth-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-bottom:24px">
+    @* Gemini subscriptions are broker-managed. Native Gemini API OAuth is intentionally not exposed here. *@
+    <AntigravityAccountPanel />
+
+    @if (oauthConfigs is not null)
+    {
+        @foreach (var cfg in oauthConfigs.Where(c => !c.ProviderCode.Equals("gemini", StringComparison.OrdinalIgnoreCase)))
+        {
+            var hasClientId = !string.IsNullOrEmpty(cfg.ClientIdPrefix);
+            var accounts = oauthAccounts.TryGetValue(cfg.Id, out var accs) ? accs : [];
+            var connected = accounts.Any(a => a.Status == "Connected");
+
+            <div class="oauth-card" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px">
+                @* Header *@
+                <div style="display:flex;align-items:center;gap:10px">
+                    <div class="oauth-icon" style="width:36px;height:36px;border-radius:8px;background:var(--accent-subtle);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                        <span class="material-symbols-outlined" style="font-size:18px;color:var(--accent)">@(cfg.ProviderCode switch { "openai" => "auto_awesome", "grok" => "bolt", _ => "key" })</span>
+                    </div>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-size:13px;font-weight:600">@cfg.DisplayName</div>
+                        <div style="font-size:11px;color:var(--text-muted)">
+                            @if (!hasClientId)
+                            {
+                                <span style="color:var(--accent-red)">Not configured</span>
+                            }
+                            else if (connected)
+                            {
+                                <span style="color:var(--accent-green)">● @accounts.Count(a => a.Status == "Connected") account(s) connected</span>
+                            }
+                            else
+                            {
+                                <span style="color:var(--text-muted)">Not connected</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                @if (hasClientId)
+                {
+                    @* Connected accounts list *@
+                    @if (accounts.Count > 0)
+                    {
+                        <div style="border-top:1px solid var(--border);padding-top:8px">
+                            @foreach (var acc in accounts)
+                            {
+                                <div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px">
+                                    <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:@(acc.Status == "Connected" ? "var(--accent-green)" : acc.Status == "Pending" ? "var(--accent-amber)" : "var(--text-muted)")"></span>
+                                    <span style="flex:1;font-weight:500">@(acc.Label ?? acc.ProviderCode)</span>
+                                    <span style="color:var(--text-muted);font-size:11px">@acc.Status</span>
+                                    <button class="btn-icon btn-danger" style="width:22px;height:22px" @onclick="() => DeleteOAuthAccount(acc.Id)" title="Remove">
+                                        <span class="material-symbols-outlined" style="font-size:12px">close</span>
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @* Action buttons *@
+                    <div style="display:flex;gap:6px">
+                        <button class="btn btn-primary btn-sm" style="flex:1" @onclick="() => OpenAddAccount(cfg.ProviderCode, cfg.Id, cfg.DisplayName)">
+                            <span class="material-symbols-outlined" style="font-size:14px">add</span> Add Account
+                        </button>
+                        @if (connected)
+                        {
+                            <button class="btn btn-danger" @onclick="@(() => DisconnectOAuthProvider(cfg.ProviderCode, cfg.DisplayName))">
+                                <span class="material-symbols-outlined" style="font-size:14px">link_off</span>
+                            </button>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div style="font-size:11px;color:var(--text-muted);padding:6px 8px;background:var(--bg-subtle);border-radius:6px">
+                        Configure <strong>@cfg.ProviderCode.ToUpper()</strong> client ID in server .env
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@* ── AI Providers Table ───────────────────────────────── *@
+<div class="section-header">
+    <h2>AI Providers</h2>
+    <div style="display:flex;gap:8px">
+        <button class="btn" @onclick="SyncAll" disabled="@syncing">
+            <Heroicon Name="arrow-path" Size="16" Style="margin-right:6px" />
+            @if (syncing) { <span>Syncing...</span> }
+            else { <span>Sync All</span> }
+        </button>
+        <button class="btn btn-primary" @onclick="OpenCreate">+ New Provider</button>
+    </div>
+</div>
+
+@if (syncMessage is not null)
+{
+    <div style="padding:10px 16px;margin-bottom:12px;background:var(--accent-light);border-radius:var(--radius-sm);font-size:13px;display:flex;align-items:center;gap:8px">
+        <span>@syncMessage</span>
+        <button class="btn-icon" @onclick="() => syncMessage = null" style="margin-left:auto;flex-shrink:0"><span class="material-symbols-outlined">close</span></button>
+    </div>
+}
+<div class="table-wrap">
+    <table class="data-table">
+        <thead>
+            <tr><th>Provider</th><th>Code</th><th>Status</th><th>Priority</th><th>Endpoint</th><th>Auth</th><th>Models</th><th></th></tr>
+        </thead>
+        <tbody>
+            @if (providers is not null && providers.Count > 0)
+            {
+                @foreach (var p in providers)
+                {
+                    var modelCount = modelsByProvider.TryGetValue(p.Id, out var ml) ? ml.Count : 0;
+                    <tr>
+                        <td style="font-weight:500">@p.Name</td>
+                        <td><span class="mono">@p.Code</span></td>
+                        <td>
+                            <span class="badge @(p.IsEnabled ? "badge-green" : "badge-gray")">
+                                <span class="badge-dot @(p.IsEnabled ? "badge-dot-green" : "badge-dot-gray")"></span>
+                                @(p.IsEnabled ? "On" : "Off")
+                            </span>
+                        </td>
+                        <td><span class="mono">@p.Priority</span></td>
+                        <td style="font-size:12px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                            @(p.BaseUrl ?? "—")
+                        </td>
+                        <td>
+                            @if (p.AuthMethod == "OAuth")
+                            {
+                                <span class="badge badge-purple">OAuth</span>
+                                @if (oauthStatus.TryGetValue(p.Id, out var st) && st is not null)
+                                {
+                                    var statusBadge = st.Status.ToString() switch
+                                    {
+                                        "Connected" => "badge-green",
+                                        "Pending" => "badge-gray",
+                                        "Error" => "badge-red",
+                                        "Expired" => "badge-amber",
+                                        "Revoked" => "badge-gray",
+                                        _ => "badge-gray"
+                                    };
+                                    <span class="badge @statusBadge" style="margin-left:4px">@st.Status</span>
+                                }
+                            }
+                            else
+                            {
+                                <span class="badge badge-gray">API Key</span>
+                            }
+                        </td>
+                        <td><span class="badge badge-gray">@modelCount</span></td>
+                        <td>
+                            <div class="row-actions">
+                                <button class="btn-icon" @onclick="() => SyncProvider(p.Id, p.Name)" title="Sync Models" disabled="@syncing">
+                                    <Heroicon Name="arrow-path" Size="16" />
+                                </button>
+                                <button class="btn-icon" @onclick="() => OpenModels(p.Id, p.Name)" title="Manage Models">
+                                    <Heroicon Name="bars-3" Size="16" />
+                                </button>
+                                <button class="btn-icon" @onclick="() => OpenEdit(p)" title="Edit">
+                                    <Heroicon Name="pencil-square" Size="16" />
+                                </button>
+                                <label class="toggle">
+                                    <input type="checkbox" checked="@p.IsEnabled" @onchange="() => Toggle(p.Id)" />
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <button class="btn-icon btn-danger" @onclick="() => DeleteProvider(p.Id, p.Name)" title="Delete">
+                                    <Heroicon Name="trash" Size="16" />
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            }
+            else
+            {
+                <tr><td colspan="8"><div class="empty-state"><div class="icon"><span class="material-symbols-outlined">smart_toy</span></div><p>No providers configured.</p></div></td></tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@* ── Create Modal ──────────────────────────────────────── *@
+<Modal Show="@showCreate" Title="New Provider" Icon="server" Size="ModalSize.Wide" OnClose="CloseCreate">
+    <Body>
+        <div class="form-row">
+            <div class="form-group" style="flex:1">
+                <label>Name</label>
+                <input type="text" @bind="createName" @bind:event="oninput" placeholder="e.g. OpenRouter" />
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Code</label>
+                <input type="text" @bind="createCode" @bind:event="oninput" placeholder="e.g. openrouter" />
+            </div>
+        </div>
+        <div class="form-row">
+            @if (createAuthMethod != "OAuth")
+            {
+                <div class="form-group" style="flex:2">
+                    <label>Base URL</label>
+                    <input type="text" @bind="createBaseUrl" placeholder="https://api.openrouter.ai/v1" />
+                </div>
+            }
+            else
+            {
+                <div class="form-group" style="flex:2">
+                    <label>OAuth Provider</label>
+                    <select @bind="createOAuthConfigId" style="width:100%">
+                        <option value="@Guid.Empty">— Select OAuth provider —</option>
+                        @if (oauthConfigs is not null)
+                        {
+                            @foreach (var c in oauthConfigs.Where(c => !c.ProviderCode.Equals("gemini", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(c.ClientIdPrefix)))
+                            {
+                                <option value="@c.Id">@c.DisplayName</option>
+                            }
+                        }
+                    </select>
+                </div>
+            }
+            <div class="form-group" style="flex:1">
+                <label>Priority</label>
+                <input type="number" @bind="createPriority" />
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Auth Method</label>
+            <select @bind="createAuthMethod" style="width:100%">
+                <option value="ApiKey">API Key</option>
+                <option value="OAuth">OAuth</option>
+            </select>
+        </div>
+        @if (createAuthMethod == "ApiKey")
+        {
+            <div class="form-group">
+                <label>API Key</label>
+                <input type="password" @bind="createApiKey" placeholder="sk-..." />
+            </div>
+        }
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseCreate">Cancel</button>
+        <button class="btn btn-primary" @onclick="SubmitCreate" disabled="@(string.IsNullOrWhiteSpace(createName) || string.IsNullOrWhiteSpace(createCode))">Create</button>
+    </Footer>
+</Modal>
+
+@* ── Edit Modal ────────────────────────────────────────── *@
+<Modal Show="@showEdit" Title="@($"Edit: {editOrigName}")" Icon="pencil-square" Size="ModalSize.Wide" OnClose="CloseEdit">
+    <Body>
+        <div class="form-row">
+            <div class="form-group" style="flex:1">
+                <label>Name</label>
+                <input type="text" @bind="editName" />
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Code</label>
+                <input type="text" @bind="editCode" />
+            </div>
+        </div>
+        <div class="form-row">
+            @if (editAuthMethod != "OAuth")
+            {
+                <div class="form-group" style="flex:2">
+                    <label>Base URL</label>
+                    <input type="text" @bind="editBaseUrl" placeholder="https://..." />
+                </div>
+            }
+            else
+            {
+                <div class="form-group" style="flex:2">
+                    <label>OAuth Provider</label>
+                    <select @bind="editOAuthConfigId" style="width:100%">
+                        <option value="@Guid.Empty">— Select OAuth provider —</option>
+                        @if (oauthConfigs is not null)
+                        {
+                            @foreach (var c in oauthConfigs.Where(c => !c.ProviderCode.Equals("gemini", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(c.ClientIdPrefix)))
+                            {
+                                <option value="@c.Id">@c.DisplayName</option>
+                            }
+                        }
+                    </select>
+                </div>
+            }
+            <div class="form-group" style="flex:1">
+                <label>Priority</label>
+                <input type="number" @bind="editPriority" />
+            </div>
+        </div>
+        @if (editAuthMethod != "OAuth")
+        {
+            <div class="form-group">
+                <label>API Key <span style="font-size:11px;color:var(--text-muted)">(leave blank to keep existing)</span></label>
+                <input type="password" @bind="editApiKey" placeholder="•••••••• (unchanged)" />
+            </div>
+        }
+        <div class="form-group">
+            <label>Auth Method</label>
+            <select @bind="editAuthMethod" style="width:100%">
+                <option value="ApiKey">API Key</option>
+                <option value="OAuth">OAuth</option>
+            </select>
+        </div>
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseEdit">Cancel</button>
+        <button class="btn btn-primary" @onclick="SubmitEdit">Save</button>
+    </Footer>
+</Modal>
+
+@* ── Models Modal ──────────────────────────────────────── *@
+<Modal Show="@showModels" Title="@($"Models: {modelsProviderName}")" Icon="cpu-chip" Size="ModalSize.Wide" OnClose="CloseModels">
+    <Body>
+        @if (currentModels is not null && currentModels.Count > 0)
+        {
+            <table class="data-table" style="margin-bottom:16px">
+                <thead>
+                    <tr><th>Name</th><th>Code</th><th>Status</th><th>Cost (in/out)</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var m in currentModels)
+                    {
+                        var mcIn = m.CostPerInputToken > 0 ? "$" + (m.CostPerInputToken * 1000).ToString("F4") + "/K" : "Free";
+                        var mcOut = m.CostPerOutputToken > 0 ? "$" + (m.CostPerOutputToken * 1000).ToString("F4") + "/K" : "Free";
+                        <tr>
+                            <td style="font-weight:500">@m.Name</td>
+                            <td><span class="mono">@m.Code</span></td>
+                            <td>
+                                <span class="badge @(m.IsEnabled ? "badge-green" : "badge-gray")">
+                                    <span class="badge-dot @(m.IsEnabled ? "badge-dot-green" : "badge-dot-gray")"></span>
+                                    @(m.IsEnabled ? "On" : "Off")
+                                </span>
+                            </td>
+                            <td><span class="mono">@mcIn / @mcOut</span></td>
+                            <td>
+                                <div class="row-actions">
+                                    <label class="toggle">
+                                        <input type="checkbox" checked="@m.IsEnabled" @onchange="() => ToggleModel(m.Id)" />
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <button class="btn-icon btn-danger" @onclick="() => DeleteModel(m.Id, m.Name)" title="Delete">
+                                        <Heroicon Name="trash" Size="16" />
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px">No models configured for this provider.</p>
+        }
+
+        <hr style="border:none;border-top:1px solid var(--border);margin-bottom:16px" />
+
+        <h3 style="font-size:13px;font-weight:600;margin-bottom:8px">Add Model</h3>
+        <div class="form-row">
+            <div class="form-group" style="flex:1">
+                <label>Name</label>
+                <input type="text" @bind="newModelName" @bind:event="oninput" placeholder="e.g. MiMo V2.5" />
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Code</label>
+                <input type="text" @bind="newModelCode" @bind:event="oninput" placeholder="e.g. mimo-v2.5" />
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group" style="flex:1">
+                <label>Cost In</label>
+                <input type="text" @bind="newModelCostIn" placeholder="0.00000014" />
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Cost Out</label>
+                <input type="text" @bind="newModelCostOut" placeholder="0.00000028" />
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Max Tokens</label>
+                <input type="number" @bind="newModelMaxTokens" placeholder="(unlimited)" />
+            </div>
+        </div>
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseModels">Done</button>
+        <button class="btn btn-primary" @onclick="SubmitAddModel" disabled="@(string.IsNullOrWhiteSpace(newModelName) || string.IsNullOrWhiteSpace(newModelCode))">+ Add Model</button>
+    </Footer>
+</Modal>
+
+@* ── Add Account Modal ────────────────────────────────── *@
+<Modal Show="@showAddAccount" Title="@($"Add Account: {addAccountDisplayName}")" Icon="person-add" Size="ModalSize.Small" OnClose="CloseAddAccount">
+    <Body>
+        <div style="text-align:center;padding:8px 0 16px">
+            <div style="width:48px;height:48px;border-radius:50%;background:var(--accent-subtle);display:flex;align-items:center;justify-content:center;margin:0 auto 12px">
+                <span class="material-symbols-outlined" style="font-size:24px;color:var(--accent)">person_add</span>
+            </div>
+            <p style="font-size:13px;color:var(--text-secondary);margin:0 0 16px">
+                Give this account a name so you can identify it later when assigning API keys.
+            </p>
+            @if (!string.IsNullOrWhiteSpace(addAccountError))
+            {
+                <div role="alert" style="padding:10px 12px;margin-bottom:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:var(--radius-sm);font-size:12px;color:var(--accent-red);text-align:left">
+                    @addAccountError
+                </div>
+            }
+            <div class="form-group">
+                <label>Account Label</label>
+                <input type="text" @bind="addAccountLabel" @bind:event="oninput" placeholder="e.g. Budi's Google, Team Account" style="width:100%;text-align:center" @onkeydown="HandleAddAccountKey" />
+            </div>
+        </div>
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseAddAccount">Cancel</button>
+        <button class="btn btn-primary" @onclick="SubmitAddAccount" disabled="@(addingAccount || string.IsNullOrWhiteSpace(addAccountLabel))">
+            @(addingAccount ? "Creating…" : "Connect")
+        </button>
+    </Footer>
+</Modal>
+
+@* ── Connect via OAuth Modal ─────────────────────────── *@
+<Modal Show="@showOAuth" Title="@($"Connect: {oauthProviderName}")" Icon="link" Size="ModalSize.Wide" OnClose="CloseOAuth">
+    <Body>
+        @if (oauthStart is not null)
+        {
+            <div style="text-align:center;padding:12px 0">
+                <div style="width:48px;height:48px;border-radius:50%;background:var(--accent-subtle);display:flex;align-items:center;justify-content:center;margin:0 auto 12px">
+                    <span class="material-symbols-outlined" style="font-size:24px;color:var(--accent)">psychiatry</span>
+                </div>
+                <h3 style="font-size:15px;margin:0 0 4px">Authorize @oauthProviderName</h3>
+
+                @if (oauthStart.IsDeviceCode)
+                {
+                    <p style="font-size:13px;color:var(--text-secondary);margin:0 0 12px">
+                        Open the verification page, sign in with your subscription account, and enter the code below.
+                        The gateway polls automatically and will show <strong>Connected</strong> when done.
+                    </p>
+                    <div style="display:flex;flex-direction:column;gap:10px;align-items:center">
+                        <div style="font-size:28px;font-weight:700;letter-spacing:2px;padding:10px 18px;background:var(--bg-secondary);border-radius:var(--radius-sm);color:var(--foreground)">
+                            @oauthStart.UserCode
+                        </div>
+                        <a href="@oauthStart.VerificationUrl" target="_blank" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:6px;padding:10px 24px" @onclick="StartAutoPoll">
+                            <span class="material-symbols-outlined" style="font-size:16px">open_in_new</span>
+                            Open Verification Page
+                        </a>
+                    </div>
+                }
+                else
+                {
+                    <p style="font-size:13px;color:var(--text-secondary);margin:0 0 16px">
+                        Click below to sign in and grant access.
+                        You'll be redirected back here automatically.
+                    </p>
+                    <a href="@oauthStart.AuthorizationUrl" target="_blank" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:6px;padding:10px 24px" @onclick="StartAutoPoll">
+                        <span class="material-symbols-outlined" style="font-size:16px">open_in_new</span>
+                        Open Authorization
+                    </a>
+                }
+            </div>
+        }
+        else if (oauthError is null)
+        {
+            <div style="text-align:center;padding:24px 0;color:var(--text-muted)">
+                <span class="material-symbols-outlined" style="font-size:32px">hourglass</span>
+                <p style="margin:8px 0 0;font-size:13px">Preparing authorization...</p>
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(oauthError))
+        {
+            <div style="padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:var(--radius-sm);font-size:13px;color:var(--accent-red);margin-top:8px">
+                <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle;margin-right:4px">error</span>
+                @oauthError
+            </div>
+        }
+
+        <div style="margin-top:12px;padding:10px 14px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:13px;display:flex;align-items:center;gap:8px">
+            <span class="material-symbols-outlined" style="font-size:14px;color:var(--text-muted)">info</span>
+            Status: <strong>@oauthCurrentStatus</strong>
+        </div>
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseOAuth">Close</button>
+        @if (oauthCurrentStatus != "Connected")
+        {
+            <button class="btn btn-primary" @onclick="PollOAuthNow" disabled="@oauthPolling">@(oauthPolling ? "Checking…" : "Check Status")</button>
+        }
+        else
+        {
+            <button class="btn btn-danger" @onclick="@(() => DisconnectOAuthProvider(oauthProviderCode, oauthProviderName))">Disconnect</button>
+        }
+    </Footer>
+</Modal>
+
+@* ── Delete Provider Confirmation ─────────────────────── *@
+<ConfirmDialog Show="@showDeleteProvider" Title="Delete Provider" Icon="trash"
+               Message="@($"Delete provider '{_deletingProviderName}' and all its models? This cannot be undone.")"
+               ConfirmText="Delete" ConfirmClass="btn-danger" OnConfirm="DeleteProviderConfirmed" OnCancel="CloseDeleteProvider" />
+
+@* ── Delete Model Confirmation ─────────────────────────── *@
+<ConfirmDialog Show="@showDeleteModel" Title="Delete Model" Icon="trash"
+               Message="@($"Delete model '{_deletingModelName}'? This cannot be undone.")"
+               ConfirmText="Delete" ConfirmClass="btn-danger" OnConfirm="DeleteModelConfirmed" OnCancel="CloseDeleteModel" />
+
+@* ── Delete Account Confirmation ───────────────────────── *@
+<ConfirmDialog Show="@showDeleteAccount" Title="Remove Account" Icon="person_remove"
+               Message="Remove this OAuth account and all its models? API keys using this provider will stop working."
+               ConfirmText="Remove" ConfirmClass="btn-danger" OnConfirm="DeleteAccountConfirmed" OnCancel="CloseDeleteAccount" />
+
+@code {
+    private List<DashboardService.ProviderView>? providers;
+    private Dictionary<Guid, List<DashboardService.ModelManageView>> modelsByProvider = [];
+    private Dictionary<Guid, OAuthConnectionStatus?> oauthStatus = [];
+    private List<DashboardService.OAuthConfigView>? oauthConfigs;
+    private Dictionary<Guid, List<DashboardService.OAuthAccountView>> oauthAccounts = [];
+    private bool syncing;
+    private string? syncMessage;
+
+    // ── Create modal ─────────────────────────────────────────
+    private bool showCreate;
+    private string createName = "";
+    private string createCode = "";
+    private string? createBaseUrl;
+    private string? createApiKey;
+    private int createPriority = 5;
+    private string createAuthMethod = "ApiKey";
+    private Guid createOAuthConfigId = Guid.Empty;
+
+    // ── Edit modal ───────────────────────────────────────────
+    private bool showEdit;
+    private Guid editId;
+    private string editOrigName = "";
+    private string editName = "";
+    private string editCode = "";
+    private string? editBaseUrl;
+    private string? editApiKey;
+    private int editPriority;
+    private string editAuthMethod = "ApiKey";
+    private Guid editOAuthConfigId = Guid.Empty;
+
+    // ── Models modal ─────────────────────────────────────────
+    private bool showModels;
+    private Guid modelsProviderId;
+    private string modelsProviderName = "";
+    private List<DashboardService.ModelManageView>? currentModels;
+
+    // ── Delete confirms ──────────────────────────────────────
+    private bool showDeleteProvider;
+    private Guid deleteProviderId;
+    private string _deletingProviderName = "";
+    private bool showDeleteModel;
+    private Guid deleteModelId;
+    private string _deletingModelName = "";
+    private bool showDeleteAccount;
+    private Guid deleteAccountId;
+
+    private string newModelName = "";
+    private string newModelCode = "";
+    private string newModelCostIn = "0";
+    private string newModelCostOut = "0";
+    private int? newModelMaxTokens;
+
+    // ── OAuth ────────────────────────────────────────────────
+    private bool showOAuth;
+    private string oauthProviderCode = "";
+    private string oauthProviderName = "";
+    private OAuthStartResult? oauthStart;
+    private string oauthCurrentStatus = "Pending";
+    private string? oauthError;
+    private bool oauthPolling;
+
+    // ── Add Account modal ────────────────────────────────────
+    private bool showAddAccount;
+    private string addAccountProviderCode = "";
+    private Guid addAccountConfigId;
+    private string addAccountDisplayName = "";
+    private string addAccountLabel = "";
+    private bool addingAccount;
+    private string? addAccountError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        oauthConfigs = await Svc.GetOAuthConfigsAsync();
+        providers = await Svc.GetProvidersAsync();
+        modelsByProvider = [];
+        oauthStatus = [];
+        if (providers is not null)
+        {
+            foreach (var p in providers)
+            {
+                var models = await Svc.GetModelsByProviderAsync(p.Id);
+                modelsByProvider[p.Id] = models.Select(m => new DashboardService.ModelManageView(
+                    m.Id, m.ProviderId, m.ProviderName,
+                    m.Name, m.Code, m.IsEnabled,
+                    m.CostPerInputToken, m.CostPerOutputToken, null)).ToList();
+                if (p.AuthMethod == "OAuth")
+                {
+                    try
+                    {
+                        oauthStatus[p.Id] = await Svc.GetOAuthStatusAsync(p.Code);
+                    }
+                    catch (InvalidOperationException ex) when (IsTenantUnavailable(ex))
+                    {
+                        // Staging may prerender the page before the dashboard
+                        // cookie/circuit has established its tenant. Keep the
+                        // page renderable; account actions still fail closed.
+                    }
+                }
+            }
+        }
+        // Load OAuth accounts per config
+        oauthAccounts = [];
+        if (oauthConfigs is not null)
+        {
+            foreach (var cfg in oauthConfigs.Where(c => !c.ProviderCode.Equals("gemini", StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    var accounts = await Svc.GetOAuthAccountsAsync(cfg.Id);
+                    oauthAccounts[cfg.Id] = accounts;
+                }
+                catch (InvalidOperationException ex) when (IsTenantUnavailable(ex))
+                {
+                    oauthAccounts[cfg.Id] = [];
+                }
+            }
+        }
+    }
+
+    // ── Toggle ───────────────────────────────────────────────
+    private async Task Toggle(Guid id)
+    {
+        await Svc.ToggleProviderAsync(id);
+        await LoadData();
+    }
+
+    // ── Create ───────────────────────────────────────────────
+    private void OpenCreate() { showCreate = true; createName = ""; createCode = ""; createBaseUrl = null; createApiKey = null; createPriority = 5; createAuthMethod = "ApiKey"; createOAuthConfigId = Guid.Empty; }
+    private void CloseCreate() { showCreate = false; }
+
+    private async Task SubmitCreate()
+    {
+        if (string.IsNullOrWhiteSpace(createName) || string.IsNullOrWhiteSpace(createCode)) return;
+        var normalizedCode = createCode.Trim().ToLowerInvariant();
+        var oauthSelected = createAuthMethod == "OAuth";
+        var oauthConfigId = oauthSelected ? createOAuthConfigId : (Guid?)null;
+        if (oauthSelected && oauthConfigId == Guid.Empty)
+        {
+            syncMessage = "Select a configured OAuth provider before creating this provider.";
+            return;
+        }
+        try
+        {
+            await Svc.CreateProviderAsync(createName.Trim(), normalizedCode,
+                oauthSelected ? null : (string.IsNullOrWhiteSpace(createBaseUrl) ? null : createBaseUrl.Trim()),
+                createAuthMethod == "ApiKey" ? (string.IsNullOrWhiteSpace(createApiKey) ? null : createApiKey) : null,
+                createPriority, 0, 0, null,
+                authMethod: createAuthMethod, oAuthConfigId: oauthConfigId);
+            showCreate = false;
+            await LoadData();
+            if (oauthSelected && oauthConfigId is not null)
+                await OpenOAuthConnect(normalizedCode, createName.Trim());
+        }
+        catch (Exception ex)
+        {
+            syncMessage = FormatUiError(ex, "Provider creation");
+        }
+    }
+
+    // ── Edit ─────────────────────────────────────────────────
+    private void OpenEdit(DashboardService.ProviderView p) { showEdit = true; editId = p.Id; editOrigName = p.Name; editName = p.Name; editCode = p.Code; editBaseUrl = p.BaseUrl; editApiKey = null; editPriority = p.Priority; editAuthMethod = p.AuthMethod; editOAuthConfigId = p.OAuthConfigId ?? Guid.Empty; }
+    private void CloseEdit() { showEdit = false; }
+
+    private async Task SubmitEdit()
+    {
+        var oauthConfigId = editAuthMethod == "OAuth" ? editOAuthConfigId : (Guid?)null;
+        await Svc.UpdateProviderAsync(editId, editName.Trim(), editCode.Trim().ToLowerInvariant(),
+            editAuthMethod == "OAuth" ? null : (string.IsNullOrWhiteSpace(editBaseUrl) ? null : editBaseUrl.Trim()),
+            editAuthMethod == "ApiKey" ? (string.IsNullOrWhiteSpace(editApiKey) ? null : editApiKey) : null,
+            editPriority, 0, 0, null,
+            authMethod: editAuthMethod, oAuthConfigId: oauthConfigId);
+        showEdit = false;
+        await LoadData();
+    }
+
+    // ── Delete ───────────────────────────────────────────────
+    private void DeleteProvider(Guid id, string name) { deleteProviderId = id; _deletingProviderName = name; showDeleteProvider = true; }
+    private async Task DeleteProviderConfirmed()
+    {
+        try
+        {
+            await Svc.DeleteProviderAsync(deleteProviderId);
+            showDeleteProvider = false;
+            syncMessage = $"Provider '{_deletingProviderName}' deleted.";
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            showDeleteProvider = false;
+            syncMessage = FormatUiError(ex, "Provider deletion");
+        }
+    }
+    private void CloseDeleteProvider() { showDeleteProvider = false; }
+
+    // ── Models ───────────────────────────────────────────────
+    private async Task OpenModels(Guid providerId, string providerName) { modelsProviderId = providerId; modelsProviderName = providerName; newModelName = ""; newModelCode = ""; newModelCostIn = "0"; newModelCostOut = "0"; newModelMaxTokens = null; await RefreshModels(); showModels = true; }
+    private async Task RefreshModels() { var models = await Svc.GetModelsByProviderAsync(modelsProviderId); currentModels = models.Select(m => new DashboardService.ModelManageView(m.Id, m.ProviderId, m.ProviderName, m.Name, m.Code, m.IsEnabled, m.CostPerInputToken, m.CostPerOutputToken, null)).ToList(); }
+    private void CloseModels() { showModels = false; }
+
+    private async Task SubmitAddModel()
+    {
+        if (string.IsNullOrWhiteSpace(newModelName) || string.IsNullOrWhiteSpace(newModelCode)) return;
+        decimal.TryParse(newModelCostIn, out var costIn);
+        decimal.TryParse(newModelCostOut, out var costOut);
+        await Svc.CreateModelAsync(modelsProviderId, newModelName.Trim(), newModelCode.Trim().ToLowerInvariant(), costIn, costOut, newModelMaxTokens);
+        newModelName = ""; newModelCode = ""; newModelCostIn = "0"; newModelCostOut = "0"; newModelMaxTokens = null;
+        await RefreshModels(); await LoadData();
+    }
+
+    private async Task ToggleModel(Guid id) { await Svc.ToggleModelAsync(id); await RefreshModels(); await LoadData(); }
+    private void DeleteModel(Guid id, string name) { deleteModelId = id; _deletingModelName = name; showDeleteModel = true; }
+    private async Task DeleteModelConfirmed() { await Svc.DeleteModelAsync(deleteModelId); showDeleteModel = false; await RefreshModels(); await LoadData(); }
+    private void CloseDeleteModel() { showDeleteModel = false; }
+
+    // ── Add Account ─────────────────────────────────────────
+    private void OpenAddAccount(string cfgCode, Guid cfgId, string displayName)
+    {
+        addAccountProviderCode = cfgCode;
+        addAccountConfigId = cfgId;
+        addAccountDisplayName = displayName;
+        addAccountLabel = "";
+        addAccountError = null;
+        addingAccount = false;
+        showAddAccount = true;
+    }
+
+    private void CloseAddAccount() { showAddAccount = false; }
+
+    private async Task HandleAddAccountKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(addAccountLabel))
+            await SubmitAddAccount();
+    }
+
+    private async Task SubmitAddAccount()
+    {
+        if (addingAccount || string.IsNullOrWhiteSpace(addAccountLabel)) return;
+        var label = addAccountLabel.Trim();
+        addingAccount = true;
+        addAccountError = null;
+
+        try
+        {
+            var providerCode = await Svc.CreateOAuthAccountAsync(addAccountConfigId, addAccountProviderCode, label);
+            await LoadData();
+            showAddAccount = false;
+            await OpenOAuthConnect(providerCode, label);
+        }
+        catch (Exception ex)
+        {
+            addAccountError = FormatUiError(ex, "OAuth account creation");
+        }
+        finally
+        {
+            addingAccount = false;
+        }
+    }
+
+    // ── Delete Account ──────────────────────────────────────
+    private void DeleteOAuthAccount(Guid providerId)
+    {
+        deleteAccountId = providerId;
+        showDeleteAccount = true;
+    }
+
+    private void CloseDeleteAccount() { showDeleteAccount = false; }
+
+    private async Task DeleteAccountConfirmed()
+    {
+        await Svc.DeleteProviderAsync(deleteAccountId);
+        showDeleteAccount = false;
+        await LoadData();
+    }
+
+    private async Task OpenOAuthConnect(string code, string name)
+    {
+        oauthProviderCode = code;
+        oauthProviderName = name;
+        oauthError = null;
+        oauthCurrentStatus = "Pending";
+        oauthStart = null;
+        showOAuth = true;
+        StateHasChanged();
+
+        try
+        {
+            oauthStart = await Svc.StartOAuthAsync(code);
+            await RefreshOAuthStatus();
+            _ = PollOAuthNow();
+        }
+        catch (Exception ex)
+        {
+            oauthError = FormatUiError(ex, "OAuth authorization");
+            oauthCurrentStatus = "Error";
+            StateHasChanged();
+        }
+    }
+
+    private void CloseOAuth()
+    {
+        showOAuth = false;
+        oauthPolling = false;
+        _ = LoadData();
+    }
+
+    private void StartAutoPoll()
+    {
+        _ = PollOAuthNow();
+    }
+
+    private async Task RefreshOAuthStatus()
+    {
+        var status = await Svc.GetOAuthStatusAsync(oauthProviderCode);
+        oauthCurrentStatus = status.Status.ToString();
+        oauthError = status.LastError;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task PollOAuthNow()
+    {
+        oauthPolling = true;
+        StateHasChanged();
+        try
+        {
+            for (int i = 0; i < 60; i++)
+            {
+                // Device-code flows (e.g. ChatGPT) poll OpenAI and complete server-side.
+                var status = oauthStart?.IsDeviceCode == true
+                    ? await Svc.PollDeviceOAuthAsync(oauthProviderCode)
+                    : (await Svc.GetOAuthStatusAsync(oauthProviderCode)).Status.ToString();
+                oauthCurrentStatus = status;
+                oauthError = (await Svc.GetOAuthStatusAsync(oauthProviderCode)).LastError;
+                await InvokeAsync(StateHasChanged);
+                if (oauthCurrentStatus is "Connected" or "Error") break;
+                await Task.Delay(2000);
+            }
+        }
+        catch (Exception ex)
+        {
+            oauthError = FormatUiError(ex, "OAuth status check");
+            await InvokeAsync(StateHasChanged);
+        }
+        finally
+        {
+            oauthPolling = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DisconnectOAuthProvider(string code, string name)
+    {
+        await Svc.DisconnectOAuthAsync(code);
+        showOAuth = false;
+        await LoadData();
+    }
+
+    // ── Sync ─────────────────────────────────────────────────
+    private async Task SyncProvider(Guid id, string name)
+    {
+        syncing = true;
+        try
+        {
+            var result = await Svc.SyncModelsAsync(id);
+            syncMessage = $"{name}: {result.Added} new models added ({result.Total} total)";
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            syncMessage = $"{name}: sync failed — {ex.Message}";
+        }
+        finally { syncing = false; }
+    }
+
+    private async Task SyncAll()
+    {
+        if (providers is null) return;
+        syncing = true;
+        syncMessage = null;
+        var totalAdded = 0;
+        var totalFailed = 0;
+        foreach (var p in providers)
+        {
+            try { var result = await Svc.SyncModelsAsync(p.Id); totalAdded += result.Added; }
+            catch { totalFailed++; }
+        }
+        syncMessage = $"Sync complete: {totalAdded} new models added";
+        if (totalFailed > 0) syncMessage += $", {totalFailed} providers failed";
+        await LoadData();
+        syncing = false;
+    }
+
+    private static bool IsTenantUnavailable(Exception ex)
+        => ex.Message.Equals("Authenticated tenant is required.", StringComparison.Ordinal);
+
+    private static string FormatUiError(Exception ex, string operation)
+    {
+        if (ex is InvalidOperationException && (
+            ex.Message.StartsWith("An OAuth configuration", StringComparison.Ordinal)
+            || ex.Message.StartsWith("The selected OAuth configuration", StringComparison.Ordinal)
+            || ex.Message.StartsWith("No OAuth config", StringComparison.Ordinal)
+            || ex.Message.StartsWith("No AiProvider", StringComparison.Ordinal)
+            || ex.Message.Contains("already in use", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("tenant is required", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("tenant context", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("Broker slot", StringComparison.OrdinalIgnoreCase)))
+        {
+            return ex.Message;
+        }
+
+        return $"{operation} failed. Verify the selected OAuth provider and staging database migrations, then try again.";
+    }
+
+    [Inject] private DashboardService Svc { get; set; } = default!;
+}

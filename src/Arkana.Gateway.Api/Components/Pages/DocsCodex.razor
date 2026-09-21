@@ -1,0 +1,50 @@
+@page "/docs/codex"
+@layout PublicDocsLayout
+
+<PageTitle>Pengaturan Codex CLI dan Desktop · ARKANA GATEWAY</PageTitle>
+
+<header class="docs-page-header"><div><span class="docs-kicker">Panduan Agent · 01</span><h1>Codex CLI dan Desktop</h1><p>Hubungkan Codex ke ARKANA GATEWAY melalui Custom Model Provider. Codex memakai Responses API, sedangkan Agent Tool tetap dijalankan di komputer pengguna.</p></div><span class="docs-agent-mark"><Heroicon Name="cpu-chip" Size="28" /></span></header>
+
+<section class="docs-prose-section"><h2>Kontrak production yang verified</h2><div class="docs-definition-list"><div><dt>Provider id</dt><dd><code>arkana-gateway</code></dd></div><div><dt>Model verified</dt><dd><code>gpt-5.5</code></dd></div><div><dt>Base URL</dt><dd><code>https://gateway.arkana.dev/v1</code></dd></div><div><dt>Wire API</dt><dd><code>responses</code></dd></div><div><dt>Credential source</dt><dd><code>GATEWAY_API_KEY</code></dd></div><div><dt>Upstream routing</dt><dd>ChatGPT OAuth Provider melalui Gateway</dd></div></div></section>
+
+<section class="docs-prose-section"><h2>Alur koneksi</h2><div class="docs-steps"><div><span>01</span><strong>Codex membaca config</strong><p>Codex membaca <code>~/.codex/config.toml</code> atau file pada <code>%USERPROFILE%\.codex\config.toml</code> di Windows.</p></div><div><span>02</span><strong>Codex memilih Responses API</strong><p>Nilai <code>wire_api = "responses"</code> membuat Request dikirim ke <code>/v1/responses</code>.</p></div><div><span>03</span><strong>Gateway validasi key</strong><p>Codex mengirim header Authorization. Gateway memvalidasi API key dan cakupan model sebelum routing.</p></div><div><span>04</span><strong>Agent menjalankan Tool lokal</strong><p>Gateway mengembalikan Tool call. Codex menjalankan shell Tool di komputer pengguna, lalu mengirim hasilnya kembali melalui Request berikutnya.</p></div></div></section>
+
+<section class="docs-prose-section"><h2>Konfigurasi minimal</h2><p>Letakkan nilai tingkat utama sebelum blok tabel TOML.</p><pre class="docs-code"><code>model = "gpt-5.5"
+model_provider = "arkana-gateway"
+model_catalog_json = "C:\\Users\\YOUR_USER\\.codex\\model_catalog.json"
+
+[model_providers.arkana-gateway]
+name = "ARKANA GATEWAY"
+base_url = "https://gateway.arkana.dev/v1"
+wire_api = "responses"
+env_key = "GATEWAY_API_KEY"
+# experimental_bearer_token hanya untuk fallback lokal dan tidak boleh di-commit</code></pre><p class="docs-note">Jangan menaruh nilai API key di halaman Docs, repository, screenshot, atau command history.</p></section>
+
+<section class="docs-prose-section"><h2>Environment variable</h2><pre class="docs-code"><code># POSIX
+export GATEWAY_API_KEY="YOUR_GATEWAY_API_KEY"
+
+# Windows PowerShell
+[Environment]::SetEnvironmentVariable('GATEWAY_API_KEY', 'YOUR_GATEWAY_API_KEY', 'User')
+
+# Periksa presence tanpa mencetak value
+# POSIX: [ -n "$GATEWAY_API_KEY" ] &amp;&amp; echo PRESENT
+# PowerShell: if ($env:GATEWAY_API_KEY) { 'PRESENT' }</code></pre><p class="docs-note">Setelah mengubah User Environment di Windows, buka process baru. Process lama tidak menerima perubahan setx atau User Environment secara otomatis.</p></section>
+
+<section class="docs-prose-section"><h2>Model catalog dan Tool mode</h2><p>Codex perlu metadata lokal agar model dikenali sebagai model yang mendukung shell Tool langsung. Buat <code>model_catalog.json</code> dari script setup repository atau deklarasikan nilai berikut pada entry model:</p><pre class="docs-code"><code>"slug": "gpt-5.5",
+"provider": "arkana-gateway",
+"shell_type": "shell_command",
+"tool_mode": "direct",
+"supports_parallel_tool_calls": true</code></pre><p>Validasi catalog dengan:</p><pre class="docs-code"><code>codex debug models</code></pre></section>
+
+<section class="docs-prose-section"><h2>Verifikasi real Tool loop</h2><pre class="docs-code"><code># Codex harus membuat artifact, bukan hanya mengatakan bahwa Tool dijalankan
+codex exec --skip-git-repo-check --json "Use your shell Tool to write exactly CODEX_GATEWAY_TOOL_OK to the temporary proof file, then read it back."</code></pre><p>Acceptance signal harus tiga sekaligus: event <code>command_execution</code> nyata, artifact berisi marker yang benar, dan Gateway Logs menunjukkan Request <code>/v1/responses</code> dengan Provider/Model yang benar.</p></section>
+
+<section class="docs-prose-section"><h2>Complex verification yang sudah dilakukan</h2><p>Production test menggunakan Codex CLI 0.149.0 dengan Provider <code>arkana-gateway</code> dan model <code>gpt-5.5</code>. Codex benar-benar melakukan:</p><ul class="docs-list"><li>create directory</li><li>write JSON dengan tiga record</li><li>read JSON</li><li>grep marker menggunakan PowerShell Select-String</li><li>parse JSON dan count record</li><li>write report</li><li>read report kembali</li></ul><p>Gateway Logs menunjukkan Request <code>POST /v1/responses</code> yang diteruskan ke ChatGPT Codex upstream. Detail report ada di <a href="/docs/api">Referensi API</a> dan halaman ini tidak pernah menampilkan nilai API key.</p></section>
+
+<section class="docs-prose-section"><h2>Codex Desktop</h2><p>Codex Desktop menggunakan shared Codex configuration, tetapi berjalan sebagai process packaged App. Setelah mengubah Provider atau key:</p><ol class="docs-list"><li>Tutup Codex Desktop sepenuhnya.</li><li>Pastikan process packaged <code>OpenAI.Codex</code> sudah berhenti.</li><li>Buka Codex Desktop kembali.</li><li>Jalankan artifact-producing Tool test.</li><li>Verifikasi Gateway Logs.</li></ol><p>Pesan launcher <code>Opening workspace...</code> saja bukan bukti Desktop App aktif.</p></section>
+
+<section class="docs-prose-section"><h2>Browser Tool</h2><p>Browser Tool adalah kemampuan client Agent, bukan fitur otomatis Gateway. Pada Codex CLI environment yang diverifikasi, Browser Tool tidak tersedia. Jangan mengklaim page title atau browser action jika client tidak mengeluarkan event Browser Tool nyata.</p></section>
+
+<section class="docs-prose-section"><h2>Masalah umum</h2><div class="docs-grid docs-grid-2"><div class="docs-card"><h3>401 dari Responses</h3><p>Validasi presence <code>GATEWAY_API_KEY</code>, key aktif di production, dan Endpoint persis <code>https://gateway.arkana.dev/v1</code>.</p></div><div class="docs-card"><h3>Tool tidak muncul</h3><p>Periksa <code>codex debug models</code>, <code>shell_type</code>, catalog, cache model, dan restart process Codex.</p></div><div class="docs-card"><h3>Turn kedua gagal</h3><p>Pastikan Gateway memakai image yang memiliki fix Responses streaming, <code>call_id</code>, dan stateless Tool-result continuation.</p></div><div class="docs-card"><h3>Computer Use Hermes gagal</h3><p>Itu berbeda dari Codex shell Tool. Hermes membutuhkan <code>cua-driver 0.20.0+</code> dan fresh Hermes runtime setelah binary override.</p></div></div></section>
+
+<section class="docs-callout"><Heroicon Name="shield-check" Size="21" /><div><strong>Jangan menerima klaim Tool tanpa artifact.</strong><p>Text response atau kalimat “command sudah dijalankan” bukan bukti. Gunakan event Tool, artifact readback, dan Gateway Logs secara bersamaan.</p></div></section>

@@ -1,0 +1,221 @@
+@page "/admin/policy-templates"
+@rendermode InteractiveServer
+@using Arkana.Domain.Entities
+@using Arkana.Domain.Interfaces
+@inject IPolicyTemplateRepository TemplateRepo
+@inject IJSRuntime Js
+@inject UserTimeService UserTime
+
+<PageTitle>Policy Templates</PageTitle>
+
+<div class="section-header">
+    <h2>Compliance Policy Templates</h2>
+    <button class="btn btn-primary" @onclick="OpenCreate">+ New Template</button>
+</div>
+
+@if (!string.IsNullOrEmpty(_message))
+{
+    <div class="alert @(_messageType == "success" ? "alert-success" : "alert-error")">
+        @_message
+        <button class="btn-icon" @onclick="() => _message = null" style="margin-left:auto"><span class="material-symbols-outlined">close</span></button>
+    </div>
+}
+
+<div class="table-wrap">
+    <table class="data-table">
+        <thead>
+            <tr><th>Name</th><th>Slug</th><th>Description</th><th>Built-in</th><th>Status</th><th>Created</th><th></th></tr>
+        </thead>
+        <tbody>
+            @if (_templates is not null && _templates.Count > 0)
+            {
+                @foreach (var t in _templates)
+                {
+                    <tr>
+                        <td><strong>@t.Name</strong></td>
+                        <td><code>@t.Slug</code></td>
+                        <td>@(t.Description.Length > 60 ? t.Description[..60] + "…" : t.Description)</td>
+                        <td>@(t.IsBuiltin ? @<text><span class="material-symbols-outlined">lock</span> Yes</text> : @<text>No</text>)</td>
+                        <td>
+                            <span class="badge @(t.IsActive ? "badge-success" : "badge-muted")">
+                                @(t.IsActive ? "Active" : "Inactive")
+                            </span>
+                        </td>
+                        <td>@UserTime.Format(t.CreatedAt, "yyyy-MM-dd")</td>
+                        <td class="actions">
+                            @if (t.IsActive)
+                            {
+                                <button class="btn btn-sm" @onclick="() => DeactivateTemplate(t)">Deactivate</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm" @onclick="() => ActivateTemplate(t)">Activate</button>
+                            }
+                            @if (!t.IsBuiltin)
+                            {
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteTemplate(t)">Delete</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            }
+            else
+            {
+                <tr><td colspan="7" class="empty">No templates found.</td></tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+<Modal Show="@_showModal" Title="Create Policy Template" Icon="document-text" Size="ModalSize.Default" OnClose="CloseModal">
+    <Body>
+        <div class="form-group">
+            <label>Name</label>
+            <input @bind="_formName" class="form-control" placeholder="e.g., GDPR, PCI DSS" />
+        </div>
+        <div class="form-group">
+            <label>Slug (auto-generated if empty)</label>
+            <input @bind="_formSlug" class="form-control" placeholder="e.g., gdpr, pci-dss" />
+        </div>
+        <div class="form-group">
+            <label>Description</label>
+            <textarea @bind="_formDescription" class="form-control" rows="3" placeholder="What this template does…"></textarea>
+        </div>
+        <div class="form-group">
+            <label>Configuration (JSON)</label>
+            <textarea @bind="_formConfig" class="form-control font-mono" rows="8" placeholder='{"pii_detection": {"enabled": true}}'></textarea>
+        </div>
+    </Body>
+    <Footer>
+        <button class="btn-icon" @onclick="CloseModal"><span class="material-symbols-outlined">close</span></button>
+        <button class="btn btn-primary" @onclick="CreateTemplate" disabled="@(_loading)">Create</button>
+    </Footer>
+</Modal>
+
+<ConfirmDialog Show="@_showDelete" Title="Delete Template" Icon="trash"
+               Message="@($"Delete template '{_deletingTemplate?.Name}'? This cannot be undone.")"
+               ConfirmText="Delete" ConfirmClass="btn-danger" OnConfirm="DeleteTemplateConfirmed" OnCancel="CloseDelete" />
+
+@code {
+    private List<PolicyTemplate>? _templates;
+    private string? _message;
+    private string _messageType = "success";
+    private bool _showModal;
+    private bool _loading;
+    private bool _showDelete;
+    private PolicyTemplate? _deletingTemplate;
+
+    // Form fields
+    private string _formName = "";
+    private string _formSlug = "";
+    private string _formDescription = "";
+    private string _formConfig = "{}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTemplates();
+    }
+
+    private async Task LoadTemplates()
+    {
+        _templates = await TemplateRepo.GetAllAsync();
+        StateHasChanged();
+    }
+
+    private void OpenCreate()
+    {
+        _formName = "";
+        _formSlug = "";
+        _formDescription = "";
+        _formConfig = "{}";
+        _showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+    }
+
+    private async Task CreateTemplate()
+    {
+        if (string.IsNullOrWhiteSpace(_formName)) return;
+        _loading = true;
+
+        try
+        {
+            var slug = string.IsNullOrWhiteSpace(_formSlug)
+                ? _formName.ToLowerInvariant().Replace(" ", "-")
+                : _formSlug.ToLowerInvariant();
+
+            var existing = await TemplateRepo.GetBySlugAsync(slug);
+            if (existing is not null)
+            {
+                ShowMessage($"Template with slug '{slug}' already exists.", "error");
+                return;
+            }
+
+            var template = PolicyTemplate.Create(
+                _formName,
+                slug,
+                _formDescription,
+                _formConfig);
+
+            await TemplateRepo.AddAsync(template);
+            ShowMessage($"Template '{_formName}' created successfully.", "success");
+            _showModal = false;
+            await LoadTemplates();
+        }
+        catch (Exception ex)
+        {
+            ShowMessage($"Error: {ex.Message}", "error");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task DeactivateTemplate(PolicyTemplate template)
+    {
+        template.Deactivate();
+        await TemplateRepo.UpdateAsync(template);
+        ShowMessage($"Template '{template.Name}' deactivated.", "success");
+        await LoadTemplates();
+    }
+
+    private async Task ActivateTemplate(PolicyTemplate template)
+    {
+        template.Activate();
+        await TemplateRepo.UpdateAsync(template);
+        ShowMessage($"Template '{template.Name}' activated.", "success");
+        await LoadTemplates();
+    }
+
+    private void DeleteTemplate(PolicyTemplate template)
+    {
+        _deletingTemplate = template;
+        _showDelete = true;
+    }
+
+    private async Task DeleteTemplateConfirmed()
+    {
+        if (_deletingTemplate is null) return;
+        await TemplateRepo.DeleteAsync(_deletingTemplate.Id);
+        ShowMessage($"Template '{_deletingTemplate.Name}' deleted.", "success");
+        _showDelete = false;
+        _deletingTemplate = null;
+        await LoadTemplates();
+    }
+
+    private void CloseDelete()
+    {
+        _showDelete = false;
+        _deletingTemplate = null;
+    }
+
+    private void ShowMessage(string msg, string type)
+    {
+        _message = msg;
+        _messageType = type;
+    }
+}

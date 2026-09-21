@@ -1,0 +1,120 @@
+@page "/portal"
+@rendermode InteractiveServer
+@using Arkana.Gateway.Api.Services
+@inject DashboardService DashSvc
+@inject UserTimeService UserTime
+
+<PageTitle>Portal</PageTitle>
+
+<div class="section-header">
+    <h2>Tenant Portal</h2>
+    <span style="color:var(--text-secondary);font-size:13px">Usage overview scoped to your tenant.</span>
+</div>
+
+@* ── Summary Cards ──────────────────────────────────────── *@
+<div class="dashboard-grid" style="margin-bottom:24px">
+    <div class="stat-card">
+        <div class="stat-label">Total Tokens (This Period)</div>
+        <div class="stat-value">@FormatNumber(_stats?.TotalTokens ?? 0)</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Input Tokens</div>
+        <div class="stat-value">@FormatNumber(_stats?.InputTokens ?? 0)</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Output Tokens</div>
+        <div class="stat-value">@FormatNumber(_stats?.OutputTokens ?? 0)</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Requests</div>
+        <div class="stat-value">@FormatNumber(_stats?.Requests ?? 0)</div>
+    </div>
+</div>
+
+@* ── Model Usage Breakdown ──────────────────────────────── *@
+<div class="settings-section">
+    <div class="settings-section-header">
+        <h3>Model Usage</h3>
+    </div>
+    @if (_modelUsage is not null && _modelUsage.Count > 0)
+    {
+        <table class="data-table">
+            <thead>
+                <tr><th>Model</th><th>Provider</th><th>Requests</th><th>Input</th><th>Output</th><th>Cost</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var m in _modelUsage)
+                {
+                    <tr>
+                        <td style="font-weight:500">@m.ModelName</td>
+                        <td>@m.ProviderName</td>
+                        <td>@m.Requests</td>
+                        <td>@FormatNumber(m.InputTokens)</td>
+                        <td>@FormatNumber(m.OutputTokens)</td>
+                        <td>$@m.Cost.ToString("F4")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    else
+    {
+        <div class="empty-state"><p>No usage data for this period.</p></div>
+    }
+</div>
+
+@* ── API Keys (Read-Only) ────────────────────────────────── *@
+<div class="settings-section" style="margin-top:16px">
+    <div class="settings-section-header">
+        <h3>Your API Keys</h3>
+    </div>
+    @if (_apiKeys is not null && _apiKeys.Count > 0)
+    {
+        <table class="data-table">
+            <thead>
+                <tr><th>Name</th><th>Key Prefix</th><th>Status</th><th>Created</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var k in _apiKeys)
+                {
+                    <tr>
+                        <td style="font-weight:500">@k.Name</td>
+                        <td><span class="mono" style="font-size:13px">@k.Prefix</span></td>
+                        <td>
+                            <span class="badge @(k.IsActive ? "badge-green" : "badge-gray")">
+                                @(k.IsActive ? "Active" : "Inactive")
+                            </span>
+                        </td>
+                        <td style="font-size:12px;color:var(--text-secondary)">
+                            @UserTime.Format(k.CreatedAt, "MMM dd, yyyy")
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    else
+    {
+        <div class="empty-state"><p>No API keys configured.</p></div>
+    }
+</div>
+
+@code {
+    private DashboardService.UsageStats? _stats;
+    private List<DashboardService.ModelUsageView>? _modelUsage;
+    private List<DashboardService.ApiKeyView>? _apiKeys;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _stats = await DashSvc.GetUsageStatsAsync(DashboardService.TimeRange.Monthly);
+        _modelUsage = await DashSvc.GetModelUsageAsync(DashboardService.TimeRange.Monthly);
+        _apiKeys = await DashSvc.GetApiKeysAsync();
+    }
+
+    private static string FormatNumber(long n) => n switch
+    {
+        >= 1_000_000 => $"{n / 1_000_000.0:F1}M",
+        >= 1_000 => $"{n / 1_000.0:F1}K",
+        _ => n.ToString()
+    };
+}

@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Arkana.Application/Arkana.Application.csproj" />
+    <Project Path="src/Arkana.AppHost/Arkana.AppHost.csproj" />
+    <Project Path="src/Arkana.Domain/Arkana.Domain.csproj" />
+    <Project Path="src/Arkana.Gateway.Api/Arkana.Gateway.Api.csproj" />
+    <Project Path="src/Arkana.Infrastructure/Arkana.Infrastructure.csproj" />
+    <Project Path="src/Arkana.ServiceDefaults/Arkana.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Arkana.Domain.Tests/Arkana.Domain.Tests.csproj" />
+    <Project Path="tests/Arkana.Application.Tests/Arkana.Application.Tests.csproj" />
+    <Project Path="tests/Arkana.Gateway.Api.Tests/Arkana.Gateway.Api.Tests.csproj" />
+    <Project Path="tests/Arkana.Infrastructure.Tests/Arkana.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Arkana.ServiceDefaults.Tests/Arkana.ServiceDefaults.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Arkana.Setup/Arkana.Setup.csproj" />
+  </Folder>
+</Solution>

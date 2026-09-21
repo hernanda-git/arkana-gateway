@@ -1,0 +1,15 @@
+@page "/docs/openclaude"
+@layout PublicDocsLayout
+<PageTitle>OpenClaude · ARKANA GATEWAY</PageTitle>
+<header class="docs-page-header"><div><span class="docs-kicker">Panduan Agent · OpenClaude</span><h1>OpenClaude</h1><p>OpenClaude adalah coding Agent CLI terminal-first yang mendukung OpenAI-compatible API, Tool, MCP, dan streaming.</p></div><span class="docs-agent-mark"><Heroicon Name="command-line" Size="28" /></span></header>
+<section class="docs-prose-section"><h2>Status integrasi</h2><p><span class="badge">Conditional</span> Dukungan OpenAI-compatible tercantum pada repository OpenClaude. Tool-loop ARKANA GATEWAY tetap perlu diverifikasi pada versi OpenClaude yang dipasang.</p></section>
+<section class="docs-prose-section"><h2>Environment</h2><pre class="docs-code"><code># POSIX
+export CLAUDE_CODE_USE_OPENAI=1
+export OPENAI_BASE_URL=https://gateway.arkana.dev/v1
+export OPENAI_API_KEY=YOUR_GATEWAY_API_KEY
+export OPENAI_MODEL=gpt-5.5
+
+openclaude</code></pre><p>Gunakan Secret store atau environment lokal. Jangan menyimpan API key di file project atau shell history.</p></section>
+<section class="docs-prose-section"><h2>Provider setup</h2><p>OpenClaude juga memiliki flow <code>/provider</code>. Gunakan flow tersebut jika ingin menyimpan profile secara aman. Pastikan Base URL berakhir di <code>/v1</code> dan model ID sama persis dengan catalog Gateway.</p></section>
+<section class="docs-prose-section"><h2>Verification</h2><ol class="docs-list"><li>Jalankan OpenClaude dengan Provider Gateway.</li><li>Uji text marker.</li><li>Minta Agent membaca dan menulis file proof.</li><li>Readback artifact di luar OpenClaude.</li><li>Periksa Gateway Logs untuk Request dan Provider.</li></ol></section>
+<section class="docs-callout"><Heroicon Name="arrow-top-right-on-square" Size="21" /><div><strong>Referensi resmi OpenClaude</strong><p><a href="https://github.com/Gitlawb/openclaude">Repository</a> · <a href="https://openclaude.gitlawb.com/docs">Documentation</a></p></div></section>

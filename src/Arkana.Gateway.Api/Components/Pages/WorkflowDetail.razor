@@ -1,0 +1,304 @@
+@page "/workflows/{Id}"
+@rendermode InteractiveServer
+@inject UserTimeService UserTime
+
+<PageTitle>@(_workflow?.Name ?? "Workflow")</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="empty-state">
+        <div class="icon">
+            <Heroicon Name="exclamation-triangle" Size="40" />
+        </div>
+        <p>@_error</p>
+    </div>
+}
+else if (_workflow is null)
+{
+    <div class="empty-state">
+        <div class="icon">
+            <Heroicon Name="clock" Size="40" />
+        </div>
+        <p>Loading workflow…</p>
+    </div>
+}
+else
+{
+    <div style="margin-bottom:24px">
+        <a href="/workflows" style="font-size:13px;color:var(--text-secondary);text-decoration:none;display:inline-flex;align-items:center;gap:4px">
+            <Heroicon Name="arrow-left" Size="16" />
+            Back to Workflows
+        </a>
+    </div>
+
+    <div class="section-header" style="margin-bottom:20px">
+        <div>
+            <h2 style="display:flex;align-items:center;gap:12px">
+                @_workflow.Name
+                <span class="badge @(_workflow.Active ? "badge-green" : "badge-gray")">
+                    <span class="badge-dot @(_workflow.Active ? "badge-dot-green" : "badge-dot-gray")"></span>
+                    @(_workflow.Active ? "Active" : "Inactive")
+                </span>
+            </h2>
+            <p style="margin:4px 0 0;font-size:13px;color:var(--text-secondary)">
+                @_workflow.NodeCount nodes · 
+                Trigger: @TriggerLabel(_workflow.TriggerType) ·
+                Created @UserTime.Format(_workflow.CreatedAt, "MMM d, yyyy")
+            </p>
+        </div>
+        <div style="display:flex;gap:8px">
+            <button class="btn btn-sm" @onclick="RunWorkflow" title="Execute now">
+                <Heroicon Name="play" Size="14" Style="vertical-align:middle;margin-right:4px" />
+                Run Now
+            </button>
+            <button class="btn btn-sm" @onclick="ToggleWorkflow">
+                @if (_workflow.Active)
+                {
+                    <Heroicon Name="pause" Size="14" Style="vertical-align:middle;margin-right:4px" />
+                    <span>Deactivate</span>
+                }
+                else
+                {
+                    <Heroicon Name="play" Size="14" Style="vertical-align:middle;margin-right:4px" />
+                    <span>Activate</span>
+                }
+            </button>
+            <button class="btn btn-sm" @onclick="Refresh" title="Refresh">
+                <Heroicon Name="arrow-path" Size="14" Style="vertical-align:middle;margin-right:4px" />
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    @* ── Details Card ── *@
+    <div class="card" style="margin-bottom:20px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;padding:16px">
+            <div>
+                <div style="font-size:11px;text-transform:uppercase;color:var(--text-secondary);margin-bottom:4px">Trigger Type</div>
+                <span class="badge badge-trigger-@TriggerClass(_workflow.TriggerType)" style="font-size:13px">
+                    @TriggerLabel(_workflow.TriggerType)
+                </span>
+            </div>
+            <div>
+                <div style="font-size:11px;text-transform:uppercase;color:var(--text-secondary);margin-bottom:4px">
+                    @(_workflow.TriggerType == WorkflowTriggerType.Cron ? "Schedule" : "Last Updated")
+                </div>
+                @if (_workflow.TriggerType == WorkflowTriggerType.Cron && !string.IsNullOrEmpty(_workflow.CronExpression))
+                {
+                    <code style="font-size:13px">@_workflow.CronExpression</code>
+                }
+                else
+                {
+                    <span style="font-size:13px">@UserTime.Format(_workflow.UpdatedAt, "MMM d, yyyy HH:mm")</span>
+                }
+            </div>
+            <div>
+                <div style="font-size:11px;text-transform:uppercase;color:var(--text-secondary);margin-bottom:4px">Webhook URL</div>
+                @if (_workflow.TriggerType == WorkflowTriggerType.Webhook && !string.IsNullOrEmpty(_workflow.WebhookUrl))
+                {
+                    <code style="font-size:12px;word-break:break-all">@_workflow.WebhookUrl</code>
+                }
+                else
+                {
+                    <span style="font-size:13px;color:var(--text-secondary)">—</span>
+                }
+            </div>
+        </div>
+        @if (_workflow.Tags.Any())
+        {
+            <div style="padding:0 16px 16px;display:flex;gap:6px;flex-wrap:wrap">
+                <span style="font-size:11px;text-transform:uppercase;color:var(--text-secondary);margin-right:4px">Tags:</span>
+                @foreach (var tag in _workflow.Tags)
+                {
+                    <span class="badge badge-gray">@tag</span>
+                }
+            </div>
+        }
+    </div>
+
+    @* ── Execution History ── *@
+    <div class="section-header">
+        <h3>Execution History</h3>
+    </div>
+
+    @if (_executions is null)
+    {
+        <p style="color:var(--text-secondary);font-size:13px">Loading executions…</p>
+    }
+    else if (_executions.Count == 0)
+    {
+        <div class="empty-state">
+            <div class="icon">
+                <Heroicon Name="document-text" Size="40" />
+            </div>
+            <p>No executions yet.</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Started</th>
+                        <th>Duration</th>
+                        <th>Mode</th>
+                        <th>Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var exe in _executions)
+                    {
+                        <tr>
+                            <td>
+                                <span class="badge @(StatusClass(exe.Status))">
+                                    <span class="badge-dot @(StatusDotClass(exe.Status))"></span>
+                                    @exe.Status
+                                </span>
+                            </td>
+                            <td style="font-size:13px;color:var(--text-secondary)">
+                                @UserTime.Format(exe.StartedAt, "MMM d, HH:mm:ss")
+                            </td>
+                            <td style="font-size:13px;color:var(--text-secondary)">
+                                @FormatDuration(exe.StartedAt, exe.FinishedAt)
+                            </td>
+                            <td style="font-size:13px;color:var(--text-secondary)">
+                                @(exe.Mode ?? "—")
+                            </td>
+                            <td style="font-size:12px;color:var(--danger);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                @(exe.ErrorMessage ?? "—")
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@if (_toast is not null)
+{
+    <div class="toast @(_toastIsError ? "toast-error" : "toast-success")">
+        @_toast
+    </div>
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+
+    private WorkflowInfo? _workflow;
+    private List<WorkflowExecutionInfo> _executions = [];
+    private string? _error;
+    private string? _toast;
+    private bool _toastIsError;
+
+    [Inject] private IN8nService N8n { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync() => await Refresh();
+
+    private async Task Refresh()
+    {
+        _error = null;
+        _toast = null;
+        try
+        {
+            _workflow = await N8n.GetWorkflowAsync(Id);
+            if (_workflow is null)
+            {
+                _error = "Workflow not found.";
+                return;
+            }
+
+            var allExecutions = await N8n.GetExecutionsAsync(limit: 50);
+            _executions = allExecutions.Where(e => e.WorkflowId == Id)
+                .OrderByDescending(e => e.StartedAt)
+                .Take(20)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not load workflow: {ex.Message}";
+        }
+    }
+
+    private async Task RunWorkflow()
+    {
+        try
+        {
+            var result = await N8n.ExecuteWorkflowAsync(Id);
+            ShowToast($"Execution started (ID: {result.Id})");
+            await Refresh();
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Failed to execute: {ex.Message}", isError: true);
+        }
+    }
+
+    private async Task ToggleWorkflow()
+    {
+        if (_workflow is null) return;
+        try
+        {
+            if (_workflow.Active)
+                await N8n.DeactivateWorkflowAsync(Id);
+            else
+                await N8n.ActivateWorkflowAsync(Id);
+
+            ShowToast(_workflow.Active ? "Workflow deactivated" : "Workflow activated");
+            await Refresh();
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"Failed to toggle: {ex.Message}", isError: true);
+        }
+    }
+
+    private void ShowToast(string message, bool isError = false)
+    {
+        _toast = message;
+        _toastIsError = isError;
+    }
+
+    private static string StatusClass(string status) => status switch
+    {
+        "success" => "badge-green",
+        "error" or "crashed" => "badge-red",
+        "running" => "badge-yellow",
+        _ => "badge-gray"
+    };
+
+    private static string StatusDotClass(string status) => status switch
+    {
+        "success" => "badge-dot-green",
+        "error" or "crashed" => "badge-dot-red",
+        "running" => "badge-dot-yellow",
+        _ => "badge-dot-gray"
+    };
+
+    private static string TriggerLabel(WorkflowTriggerType type) => type switch
+    {
+        WorkflowTriggerType.Cron => "Cron",
+        WorkflowTriggerType.Webhook => "Webhook",
+        WorkflowTriggerType.Mixed => "Mixed",
+        _ => "Manual"
+    };
+
+    private static string TriggerClass(WorkflowTriggerType type) => type switch
+    {
+        WorkflowTriggerType.Cron => "blue",
+        WorkflowTriggerType.Webhook => "purple",
+        WorkflowTriggerType.Mixed => "orange",
+        _ => "gray"
+    };
+
+    private static string FormatDuration(DateTimeOffset start, DateTimeOffset? end)
+    {
+        if (end is null) return "—";
+        var diff = end.Value - start;
+        if (diff.TotalSeconds < 1) return "<1s";
+        if (diff.TotalMinutes < 1) return $"{(int)diff.TotalSeconds}s";
+        return $"{(int)diff.TotalMinutes}m {(int)diff.Seconds}s";
+    }
+}

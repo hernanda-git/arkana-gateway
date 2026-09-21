@@ -1,0 +1,521 @@
+@using Arkana.Domain.Entities
+@using Arkana.Domain.Interfaces
+@using Arkana.Gateway.Api.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@implements IDisposable
+@inject AntigravityAccountService Accounts
+@inject ProviderAccountDashboardFacade Broker
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IConfiguration Configuration
+@inject ITenantContextAccessor TenantContext
+@inject DashboardTenantResolver TenantResolver
+
+<div class="oauth-card" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;align-items:center;gap:10px">
+        <div class="oauth-icon" style="width:36px;height:36px;border-radius:8px;background:var(--accent-subtle);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <span class="material-symbols-outlined" style="font-size:18px;color:var(--accent)">psychiatry</span>
+        </div>
+        <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600">Antigravity (Gemini Subscription)</div>
+            <div style="font-size:11px;color:var(--text-muted)">
+                @if (_loadError is not null)
+                {
+                    <span style="color:var(--accent-red)">@_loadError</span>
+                }
+                else if (Accounts.ConfiguredSlots.Count == 0)
+                {
+                    <span style="color:var(--accent-red)">Broker slot is not configured</span>
+                }
+                else if (!_tenantAvailable)
+                {
+                    <span style="color:var(--text-muted)">@(DashboardAuthEnabled ? "Sign in to manage Antigravity accounts" : "Dashboard authentication is disabled")</span>
+                }
+                else if (_accounts.Count == 0)
+                {
+                    <span style="color:var(--text-muted)">No Antigravity account connected</span>
+                }
+                else
+                {
+                    <span style="color:var(--accent-green)">● @_accounts.Count account(s) in broker flow</span>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div style="font-size:11px;color:var(--text-muted);padding:8px 10px;background:var(--bg-subtle);border-radius:6px">
+        This is the supported Gemini account flow. It uses the isolated Antigravity broker, not native Gemini API OAuth.
+    </div>
+
+    @if (_accounts.Count > 0)
+    {
+        <div style="border-top:1px solid var(--border);padding-top:8px">
+            @foreach (var account in _accounts)
+            {
+                <div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px">
+                    <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:@StatusColor(account.Status)"></span>
+                    <span style="flex:1;min-width:0;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@account.DisplayName</span>
+                    <span class="mono" style="font-size:10px;color:var(--text-muted)">@account.Code</span>
+                    <span style="color:var(--text-muted);font-size:11px">@account.Status</span>
+                    @if (!string.Equals(account.Status, nameof(ProviderAccountStatus.Connected), StringComparison.OrdinalIgnoreCase))
+                    {
+                        <button class="btn-icon" style="width:22px;height:22px" @onclick="() => StartAuthorization(account, true)" title="Reconnect">
+                            <span class="material-symbols-outlined" style="font-size:13px">refresh</span>
+                        </button>
+                    }
+                </div>
+                <div style="padding:0 0 3px 16px;color:var(--text-muted);font-size:10px">slot: @account.Slot</div>
+            }
+        </div>
+    }
+
+    @if (_loadError is not null)
+    {
+        <div style="font-size:12px;color:var(--accent-red)">@_loadError</div>
+    }
+
+    @if (!_tenantAvailable && !_authenticated && DashboardAuthEnabled)
+    {
+        <a class="btn btn-primary btn-sm" style="width:100%;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:4px" href="/login" title="Sign in to manage Antigravity accounts">
+            <span class="material-symbols-outlined" style="font-size:14px">login</span> Sign in to add an account
+        </a>
+    }
+    else
+    {
+        <button class="btn btn-primary btn-sm" style="width:100%" @onclick="OpenAdd" disabled="@(Accounts.ConfiguredSlots.Count == 0 || _loading || !_tenantAvailable)" title="@AddButtonTitle">
+            <span class="material-symbols-outlined" style="font-size:14px">add</span> Add Antigravity Account
+        </button>
+    }
+</div>
+
+<Modal Show="@_showAdd" Title="Add Antigravity Account" Icon="psychiatry" Size="ModalSize.Default" OnClose="CloseAdd">
+    <Body>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;line-height:1.5">
+            Connect a Google account through the Antigravity subscription broker. Do not use native Gemini API OAuth for this subscription.
+        </div>
+        <div class="form-group">
+            <label>Account Label</label>
+            <input type="text" @bind="_newLabel" @bind:event="oninput" placeholder="e.g. antigravity-1" autocomplete="off" />
+        </div>
+        <div class="form-group">
+            <label>Broker Slot</label>
+            <select @bind="_selectedSlot" style="width:100%" disabled="@(_configuredSlots.Count == 1)">
+                @foreach (var slot in _configuredSlots)
+                {
+                    <option value="@slot">@slot</option>
+                }
+            </select>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:5px">One broker slot is isolated to one Google subscription identity.</div>
+        </div>
+        @if (_createError is not null)
+        {
+            <div style="padding:9px 10px;background:var(--accent-red-subtle);border-radius:6px;color:var(--accent-red);font-size:12px">@_createError</div>
+        }
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseAdd">Cancel</button>
+        <button class="btn btn-primary" @onclick="CreateAccount" disabled="@(_creating || string.IsNullOrWhiteSpace(_newLabel) || _configuredSlots.Count == 0)">
+            @if (_creating) { <span>Creating...</span> } else { <span>Create &amp; Connect</span> }
+        </button>
+    </Footer>
+</Modal>
+
+<Modal Show="@_showConnect" Title="@($"Connect: {_activeAccount?.DisplayName ?? "Antigravity"}")" Icon="link" Size="ModalSize.Wide" OnClose="CloseConnect" CloseOnOverlayClick="@(!_polling)">
+    <Body>
+        @if (_authorizationUrl is not null)
+        {
+            <div style="font-size:12px;line-height:1.5;margin-bottom:14px">
+                <strong>1.</strong> Open the Google authorization page in your browser.<br />
+                <strong>2.</strong> Sign in with the Google account that owns the Antigravity subscription.<br />
+                <strong>3.</strong> Complete approval. This dialog checks the broker status automatically.
+            </div>
+            <a class="btn btn-primary" style="display:inline-flex;text-decoration:none" href="@_authorizationUrl" target="_blank" rel="noopener noreferrer">
+                <span class="material-symbols-outlined" style="font-size:14px">open_in_new</span> Open Google authorization
+            </a>
+        }
+        else if (_connectError is null)
+        {
+            <div style="font-size:12px;color:var(--text-muted)">Preparing the broker authorization URL...</div>
+        }
+
+        <div style="display:flex;align-items:center;gap:10px;margin-top:18px;padding-top:12px;border-top:1px solid var(--border)">
+            <span style="width:9px;height:9px;border-radius:50%;background:@StatusColor(_connectStatus)"></span>
+            <span style="font-size:12px">Broker status: <strong>@_connectStatus</strong></span>
+            @if (_polling)
+            {
+                <span style="font-size:11px;color:var(--text-muted);margin-left:auto">Checking...</span>
+            }
+        </div>
+        @if (string.Equals(_connectStatus, nameof(ProviderAccountStatus.Connected), StringComparison.OrdinalIgnoreCase))
+        {
+            <div style="margin-top:10px;padding:9px 10px;background:var(--accent-green-subtle);border-radius:6px;color:var(--accent-green);font-size:12px">
+                Connected. Requests pinned to this account now route through GeminiSubscriptionChatService.
+            </div>
+        }
+        @if (_connectError is not null)
+        {
+            <div style="margin-top:10px;padding:9px 10px;background:var(--accent-red-subtle);border-radius:6px;color:var(--accent-red);font-size:12px">@_connectError</div>
+        }
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="PollNow" disabled="@(_polling || _activeAccount is null)">Check status</button>
+        <button class="btn btn-primary" @onclick="CloseConnect">Close</button>
+    </Footer>
+</Modal>
+
+@code {
+    private IReadOnlyList<AntigravityAccountView> _accounts = [];
+    private IReadOnlyList<string> _configuredSlots = [];
+    private bool _tenantAvailable;
+    private bool _authenticated;
+    private string? _loadError;
+    private string? _createError;
+    private string? _connectError;
+    private string _newLabel = string.Empty;
+    private string _selectedSlot = string.Empty;
+    private bool _loading;
+    private bool _creating;
+    private bool _showAdd;
+    private bool _showConnect;
+    private bool _polling;
+    private string _connectStatus = nameof(ProviderAccountStatus.Pending);
+    private string? _authorizationUrl;
+    private AntigravityAccountView? _activeAccount;
+    private CancellationTokenSource? _pollCancellation;
+    private bool _disposed;
+
+    private bool DashboardAuthEnabled
+        => Configuration.GetValue<bool>("Auth:Enabled")
+            || string.Equals(Configuration["AUTH"], "1", StringComparison.OrdinalIgnoreCase);
+
+    private string AddButtonTitle
+        => Accounts.ConfiguredSlots.Count == 0
+            ? "No Antigravity broker slot is configured"
+            : _tenantAvailable
+                ? "Add an Antigravity subscription account"
+                : _authenticated
+                    ? "Waiting for the authenticated tenant context"
+                    : DashboardAuthEnabled
+                        ? "Sign in to manage Antigravity accounts"
+                        : "Dashboard authentication is disabled; set AUTH=1 to manage accounts";
+
+    protected override void OnInitialized()
+    {
+        AuthenticationStateProvider.AuthenticationStateChanged += OnAuthenticationStateChanged;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await EnsureCircuitTenantAsync();
+        await LoadAsync();
+    }
+
+    private void OnAuthenticationStateChanged(Task<AuthenticationState> authenticationStateTask)
+        => _ = ApplyAuthenticationStateAsync(authenticationStateTask);
+
+    private async Task ApplyAuthenticationStateAsync(Task<AuthenticationState> authenticationStateTask)
+    {
+        try
+        {
+            var authState = await authenticationStateTask;
+            await InvokeAsync(async () =>
+            {
+                if (_disposed)
+                    return;
+
+                if (TrySetTenant(authState))
+                {
+                    await LoadAsync();
+                }
+                else
+                {
+                    TenantContext.ClearTenant();
+                    _tenantAvailable = false;
+                    _accounts = [];
+                }
+
+                StateHasChanged();
+            });
+        }
+        catch (Exception ex) when (!_disposed)
+        {
+            _loadError = UserError(ex, "Unable to read dashboard authentication state.");
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _tenantAvailable)
+            return;
+
+        // During static/prerendered rendering the authentication state can still
+        // be anonymous. Retry after the interactive circuit is established so a
+        // valid dashboard cookie does not leave the Add button disabled forever.
+        if (await EnsureCircuitTenantAsync())
+        {
+            await LoadAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task<bool> EnsureCircuitTenantAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        return TrySetTenant(authState);
+    }
+
+    private bool TrySetTenant(AuthenticationState authState)
+    {
+        _authenticated = authState.User.Identity?.IsAuthenticated == true;
+        // The resolver falls back to ADMIN_TENANT_ID in the open-dashboard mode
+        // (AUTH=0), so provider health loads without an authenticated principal.
+        if (TenantResolver.TryResolve(authState, out var tenantId))
+        {
+            TenantContext.SetTenant(tenantId);
+            return true;
+        }
+
+        TenantContext.ClearTenant();
+        return false;
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _configuredSlots = Accounts.ConfiguredSlots;
+            _accounts = await Accounts.ListAsync();
+            _tenantAvailable = true;
+            _loadError = null;
+            if (string.IsNullOrWhiteSpace(_selectedSlot)
+                || !_configuredSlots.Contains(_selectedSlot, StringComparer.OrdinalIgnoreCase))
+                _selectedSlot = _configuredSlots.FirstOrDefault(x => x.Equals(Accounts.DefaultSlot, StringComparison.OrdinalIgnoreCase))
+                    ?? _configuredSlots.FirstOrDefault()
+                    ?? string.Empty;
+        }
+        catch (Exception ex) when (IsTenantUnavailable(ex))
+        {
+            _tenantAvailable = false;
+            _configuredSlots = Accounts.ConfiguredSlots;
+            _accounts = [];
+            _loadError = null;
+        }
+        catch (Exception ex)
+        {
+            _tenantAvailable = false;
+            _loadError = UserError(ex, "Unable to load Antigravity broker accounts.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void OpenAdd()
+    {
+        _newLabel = string.Empty;
+        _createError = null;
+        _selectedSlot = _configuredSlots.FirstOrDefault(x => x.Equals(Accounts.DefaultSlot, StringComparison.OrdinalIgnoreCase))
+            ?? _configuredSlots.FirstOrDefault()
+            ?? string.Empty;
+        _showAdd = true;
+    }
+
+    private async Task CreateAccount()
+    {
+        if (_creating || string.IsNullOrWhiteSpace(_newLabel) || string.IsNullOrWhiteSpace(_selectedSlot))
+            return;
+
+        _creating = true;
+        _createError = null;
+        try
+        {
+            var account = await Accounts.CreateAsync(_newLabel, _selectedSlot);
+            _showAdd = false;
+            await LoadAsync();
+            await StartAuthorization(account, false);
+        }
+        catch (Exception ex)
+        {
+            _createError = UserError(ex, "Antigravity account creation failed.");
+        }
+        finally
+        {
+            _creating = false;
+        }
+    }
+
+    private async Task StartAuthorization(AntigravityAccountView account, bool reconnect)
+    {
+        CancelPolling();
+        _activeAccount = account;
+        _connectStatus = account.Status;
+        _authorizationUrl = null;
+        _connectError = null;
+        _showConnect = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var operation = await Broker.StartAsync(
+                account.AccountId,
+                account.Slot,
+                reconnect,
+                $"dashboard-antigravity-start-{Guid.NewGuid():N}",
+                account.Version,
+                CancellationToken.None);
+            _authorizationUrl = operation.AuthorizationUrl;
+            _ = PollUntilConnected();
+        }
+        catch (Exception ex)
+        {
+            _connectError = UserError(ex, "Unable to start Antigravity authorization.");
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task PollUntilConnected()
+    {
+        if (_polling || _activeAccount is null)
+            return;
+
+        _polling = true;
+        _pollCancellation = new CancellationTokenSource();
+        try
+        {
+            for (var attempt = 0; attempt < 90 && !_pollCancellation.IsCancellationRequested; attempt++)
+            {
+                await RefreshAndProbe(_pollCancellation.Token);
+                if (string.Equals(_connectStatus, nameof(ProviderAccountStatus.Connected), StringComparison.OrdinalIgnoreCase))
+                    break;
+                await Task.Delay(TimeSpan.FromSeconds(2), _pollCancellation.Token);
+            }
+        }
+        catch (OperationCanceledException) when (_pollCancellation?.IsCancellationRequested == true)
+        {
+        }
+        catch (Exception ex)
+        {
+            _connectError = UserError(ex, "Unable to read Antigravity broker status.");
+        }
+        finally
+        {
+            _polling = false;
+            _pollCancellation?.Dispose();
+            _pollCancellation = null;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task PollNow()
+    {
+        if (_activeAccount is null || _polling)
+            return;
+        _pollCancellation = new CancellationTokenSource();
+        try
+        {
+            await RefreshAndProbe(_pollCancellation.Token);
+        }
+        catch (Exception ex)
+        {
+            _connectError = UserError(ex, "Unable to read Antigravity broker status.");
+        }
+        finally
+        {
+            _pollCancellation.Dispose();
+            _pollCancellation = null;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task RefreshAndProbe(CancellationToken ct)
+    {
+        if (_activeAccount is null)
+            return;
+
+        var current = await Broker.GetAsync(_activeAccount.AccountId, ct);
+        if (current is null)
+        {
+            _connectError = "The Antigravity account no longer exists.";
+            return;
+        }
+
+        _connectStatus = current.ConnectionStatus.ToString();
+        _activeAccount = _activeAccount with
+        {
+            Status = _connectStatus,
+            IsEnabled = current.IsEnabled,
+            Version = current.Version
+        };
+        if (string.Equals(_connectStatus, nameof(ProviderAccountStatus.Connected), StringComparison.OrdinalIgnoreCase))
+        {
+            await LoadAsync();
+            return;
+        }
+
+        try
+        {
+            await Broker.ProbeAsync(
+                current.Id,
+                _activeAccount.Slot,
+                $"dashboard-antigravity-probe-{Guid.NewGuid():N}",
+                current.Version,
+                ct);
+        }
+        catch (ProviderAccountPreconditionException)
+        {
+            // Another probe/circuit won the version reservation; the next poll reads it.
+        }
+    }
+
+    private void CloseAdd()
+    {
+        _showAdd = false;
+        _createError = null;
+    }
+
+    private async Task CloseConnect()
+    {
+        CancelPolling();
+        _showConnect = false;
+        _authorizationUrl = null;
+        _connectError = null;
+        await LoadAsync();
+    }
+
+    private void CancelPolling()
+    {
+        try { _pollCancellation?.Cancel(); } catch (ObjectDisposedException) { }
+    }
+
+    private static string StatusColor(string? status)
+        => status switch
+        {
+            nameof(ProviderAccountStatus.Connected) => "var(--accent-green)",
+            nameof(ProviderAccountStatus.Pending) => "var(--accent-amber)",
+            nameof(ProviderAccountStatus.ReconnectRequired) => "var(--accent-amber)",
+            _ => "var(--text-muted)"
+        };
+
+    private static string UserError(Exception ex, string fallback)
+        => ex switch
+        {
+            ArgumentException or InvalidOperationException => ex.Message,
+            ProviderAccountPreconditionException => "The account changed while this operation was running. Try again.",
+            _ => fallback
+        };
+
+    private static bool IsTenantUnavailable(Exception ex)
+        => ex is InvalidOperationException
+            && ex.Message.Equals("Authenticated tenant is required.", StringComparison.Ordinal);
+
+    public void Dispose()
+    {
+        _disposed = true;
+        AuthenticationStateProvider.AuthenticationStateChanged -= OnAuthenticationStateChanged;
+        CancelPolling();
+        _pollCancellation?.Dispose();
+    }
+}

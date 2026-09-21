@@ -1,0 +1,232 @@
+diff --git a/internal/api/handlers/management/auth_files_provider_oauth.go b/internal/api/handlers/management/auth_files_provider_oauth.go
+index 3928d60..03f3bad 100644
+--- a/internal/api/handlers/management/auth_files_provider_oauth.go
++++ b/internal/api/handlers/management/auth_files_provider_oauth.go
+@@ -8,6 +8,7 @@ import (
+ 	"errors"
+ 	"fmt"
+ 	"net/http"
++	"net/url"
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
+@@ -356,14 +357,24 @@ func (h *Handler) RequestAntigravityToken(c *gin.Context) {
+ 		return
+ 	}
+ 
+-	redirectURI := fmt.Sprintf("http://localhost:%d/oauth-callback", antigravity.CallbackPort)
++	redirectURI, useServerRedirect, errRedirect := antigravityCallbackRedirectURI()
++	if errRedirect != nil {
++		log.WithError(errRedirect).Error("invalid Antigravity OAuth redirect configuration")
++		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid callback configuration"})
++		return
++	}
+ 	authURL := authSvc.BuildAuthURL(state, redirectURI)
++	if strings.TrimSpace(authURL) == "" {
++		log.Error("Antigravity OAuth server redirect has no dedicated client credentials")
++		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid callback client configuration"})
++		return
++	}
+ 
+ 	RegisterOAuthSession(state, "antigravity")
+ 
+ 	isWebUI := isWebUIRequest(c)
+ 	var forwarder *callbackForwarder
+-	if isWebUI {
++	if isWebUI && !useServerRedirect {
+ 		targetURL, errTarget := h.managementCallbackURL("/antigravity/callback")
+ 		if errTarget != nil {
+ 			log.WithError(errTarget).Error("failed to compute antigravity callback target")
+@@ -379,7 +390,7 @@ func (h *Handler) RequestAntigravityToken(c *gin.Context) {
+ 	}
+ 
+ 	go func() {
+-		if isWebUI {
++		if isWebUI && !useServerRedirect {
+ 			defer stopCallbackForwarderInstance(antigravity.CallbackPort, forwarder)
+ 		}
+ 
+@@ -508,6 +519,24 @@ func (h *Handler) RequestAntigravityToken(c *gin.Context) {
+ 	c.JSON(200, gin.H{"status": "ok", "url": authURL, "state": state})
+ }
+ 
++func antigravityCallbackRedirectURI() (string, bool, error) {
++	const configuredKey = "ANTIGRAVITY_OAUTH_REDIRECT_URI"
++	raw := strings.TrimSpace(os.Getenv(configuredKey))
++	if raw == "" {
++		return fmt.Sprintf("http://localhost:%d/oauth-callback", antigravity.CallbackPort), false, nil
++	}
++	if strings.TrimSpace(os.Getenv("ANTIGRAVITY_OAUTH_CLIENT_ID")) == "" ||
++		strings.TrimSpace(os.Getenv("ANTIGRAVITY_OAUTH_CLIENT_SECRET")) == "" {
++		return "", true, fmt.Errorf("%s requires ANTIGRAVITY_OAUTH_CLIENT_ID and ANTIGRAVITY_OAUTH_CLIENT_SECRET", configuredKey)
++	}
++	parsed, errParse := url.ParseRequestURI(raw)
++	if errParse != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Path == "" ||
++		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
++		return "", true, fmt.Errorf("%s must be an absolute HTTPS URL without userinfo, query, or fragment", configuredKey)
++	}
++	return raw, true, nil
++}
++
+ func (h *Handler) RequestXAIToken(c *gin.Context) {
+ 	ctx := context.Background()
+ 	ctx = PopulateAuthContext(ctx, c)
+diff --git a/internal/api/handlers/management/oauth_callback_test.go b/internal/api/handlers/management/oauth_callback_test.go
+index 0d2e8de..2cbc8a6 100644
+--- a/internal/api/handlers/management/oauth_callback_test.go
++++ b/internal/api/handlers/management/oauth_callback_test.go
+@@ -13,8 +13,18 @@ import (
+ 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+ )
+ 
+-func TestPostOAuthCallbackCreatesMissingAuthDir(t *testing.T) {
++func TestAntigravityCallbackRedirectRequiresDedicatedClient(t *testing.T) {
++	t.Setenv("ANTIGRAVITY_OAUTH_REDIRECT_URI", "https://staging.example.test/oauth/gemini/callback")
++	t.Setenv("ANTIGRAVITY_OAUTH_CLIENT_ID", "")
++	t.Setenv("ANTIGRAVITY_OAUTH_CLIENT_SECRET", "")
++
++	_, useServerRedirect, err := antigravityCallbackRedirectURI()
++	if err == nil || !useServerRedirect {
++		t.Fatalf("expected server redirect configuration to require dedicated client credentials")
++	}
++}
+ 
++func TestPostOAuthCallbackCreatesMissingAuthDir(t *testing.T) {
+ 	authDir := filepath.Join(t.TempDir(), "missing-auth")
+ 	state := "test-antigravity-state"
+ 	RegisterOAuthSession(state, "antigravity")
+diff --git a/internal/auth/antigravity/auth.go b/internal/auth/antigravity/auth.go
+index 489d796..e6b40e8 100644
+--- a/internal/auth/antigravity/auth.go
++++ b/internal/auth/antigravity/auth.go
+@@ -8,6 +8,7 @@ import (
+ 	"io"
+ 	"net/http"
+ 	"net/url"
++	"os"
+ 	"strings"
+ 	"time"
+ 
+@@ -32,7 +33,10 @@ type userInfo struct {
+ 
+ // AntigravityAuth handles Antigravity OAuth authentication
+ type AntigravityAuth struct {
+-	httpClient *http.Client
++	httpClient   *http.Client
++	clientID     string
++	clientSecret string
++	serverRedirect bool
+ }
+ 
+ // NewAntigravityAuth creates a new Antigravity auth service.
+@@ -40,11 +44,26 @@ func NewAntigravityAuth(cfg *config.Config, httpClient *http.Client) *Antigravit
+ 	if cfg == nil {
+ 		cfg = &config.Config{}
+ 	}
+-	if httpClient != nil {
+-		return &AntigravityAuth{httpClient: httpClient}
++	configuredRedirect := strings.TrimSpace(os.Getenv("ANTIGRAVITY_OAUTH_REDIRECT_URI"))
++	clientID := strings.TrimSpace(os.Getenv("ANTIGRAVITY_OAUTH_CLIENT_ID"))
++	clientSecret := os.Getenv("ANTIGRAVITY_OAUTH_CLIENT_SECRET")
++	serverRedirect := configuredRedirect != ""
++	if !serverRedirect {
++		if clientID == "" {
++			clientID = ClientID
++		}
++		if clientSecret == "" {
++			clientSecret = ClientSecret
++		}
++	}
++	if httpClient == nil {
++		httpClient = util.SetProxy(&cfg.SDKConfig, &http.Client{})
+ 	}
+ 	return &AntigravityAuth{
+-		httpClient: util.SetProxy(&cfg.SDKConfig, &http.Client{}),
++		httpClient:      httpClient,
++		clientID:        clientID,
++		clientSecret:    clientSecret,
++		serverRedirect:  serverRedirect,
+ 	}
+ }
+ 
+@@ -123,9 +142,16 @@ func (o *AntigravityAuth) BuildAuthURL(state, redirectURI string) string {
+ 	if strings.TrimSpace(redirectURI) == "" {
+ 		redirectURI = fmt.Sprintf("http://localhost:%d/oauth-callback", CallbackPort)
+ 	}
++	clientID := o.clientID
++	if strings.TrimSpace(clientID) == "" {
++		if o.serverRedirect {
++			return ""
++		}
++		clientID = ClientID
++	}
+ 	params := url.Values{}
+ 	params.Set("access_type", "offline")
+-	params.Set("client_id", ClientID)
++	params.Set("client_id", clientID)
+ 	params.Set("prompt", "consent")
+ 	params.Set("redirect_uri", redirectURI)
+ 	params.Set("response_type", "code")
+@@ -138,8 +164,22 @@ func (o *AntigravityAuth) BuildAuthURL(state, redirectURI string) string {
+ func (o *AntigravityAuth) ExchangeCodeForTokens(ctx context.Context, code, redirectURI string) (*TokenResponse, error) {
+ 	data := url.Values{}
+ 	data.Set("code", code)
+-	data.Set("client_id", ClientID)
+-	data.Set("client_secret", ClientSecret)
++	clientID := o.clientID
++	if strings.TrimSpace(clientID) == "" {
++		if o.serverRedirect {
++			return nil, fmt.Errorf("antigravity OAuth server redirect requires ANTIGRAVITY_OAUTH_CLIENT_ID")
++		}
++		clientID = ClientID
++	}
++	clientSecret := o.clientSecret
++	if clientSecret == "" {
++		if o.serverRedirect {
++			return nil, fmt.Errorf("antigravity OAuth server redirect requires ANTIGRAVITY_OAUTH_CLIENT_SECRET")
++		}
++		clientSecret = ClientSecret
++	}
++	data.Set("client_id", clientID)
++	data.Set("client_secret", clientSecret)
+ 	data.Set("redirect_uri", redirectURI)
+ 	data.Set("grant_type", "authorization_code")
+ 
+diff --git a/internal/auth/antigravity/auth_test.go b/internal/auth/antigravity/auth_test.go
+index 7e8112a..873fc54 100644
+--- a/internal/auth/antigravity/auth_test.go
++++ b/internal/auth/antigravity/auth_test.go
+@@ -14,6 +14,33 @@ func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+ 	return f(req)
+ }
+ 
++func TestServerRedirectRequiresDedicatedOAuthClient(t *testing.T) {
++	t.Setenv("ANTIGRAVITY_OAUTH_REDIRECT_URI", "https://staging.example.test/oauth/gemini/callback")
++	t.Setenv("ANTIGRAVITY_OAUTH_CLIENT_ID", "")
++	t.Setenv("ANTIGRAVITY_OAUTH_CLIENT_SECRET", "")
++
++	auth := NewAntigravityAuth(nil, &http.Client{})
++	if got := auth.BuildAuthURL("state", "https://staging.example.test/oauth/gemini/callback"); got != "" {
++		t.Fatalf("BuildAuthURL returned a URL without dedicated credentials")
++	}
++}
++
++func TestServerRedirectUsesDedicatedOAuthClient(t *testing.T) {
++	t.Setenv("ANTIGRAVITY_OAUTH_REDIRECT_URI", "https://staging.example.test/oauth/gemini/callback")
++	t.Setenv("ANTIGRAVITY_OAUTH_CLIENT_ID", "dedicated-web-client")
++	t.Setenv("ANTIGRAVITY_OAUTH_CLIENT_SECRET", "dedicated-web-secret")
++
++	auth := NewAntigravityAuth(nil, &http.Client{})
++	got := auth.BuildAuthURL("state", "https://staging.example.test/oauth/gemini/callback")
++	if !strings.Contains(got, "client_id=dedicated-web-client") {
++		t.Fatalf("BuildAuthURL did not use dedicated client: %s", got)
++	}
++	if strings.Contains(got, ClientID) {
++		t.Fatalf("BuildAuthURL used stock client: %s", got)
++	}
++}
++
++
+ func TestFetchProjectIDFromLoadCodeAssist(t *testing.T) {
+ 	auth := NewAntigravityAuth(nil, &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+ 		if req.URL.String() != "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist" {

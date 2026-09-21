@@ -1,0 +1,8 @@
+# Non-secret per-slot CLIProxyAPI template. Copy into the slot config volume.
+# The management secret is supplied out-of-band by the operator, never here.
+auth-dir: /var/lib/cliproxy/auth
+remote-management:
+  allow remote: false
+  secret-key: "SET_OUT_OF_BAND"
+max-retry-credentials: 1
+session-affinity: false

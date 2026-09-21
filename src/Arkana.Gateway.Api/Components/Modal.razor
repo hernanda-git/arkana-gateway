@@ -1,0 +1,144 @@
+@* Modal — standardized dialog component for the ARKANA GATEWAY dashboard.
+   Used by every page for create/edit/detail/drawer dialogs.
+
+   Usage:
+     <Modal Show="@_showEdit" Title="Edit Provider" Icon="pencil-square"
+            Size="ModalSize.Wide" OnClose="CloseEdit">
+         <Body>
+             ... form content ...
+         </Body>
+         <Footer>
+             <button class="btn" @onclick="CloseEdit">Cancel</button>
+             <button class="btn btn-primary" @onclick="SubmitEdit">Save</button>
+         </Footer>
+     </Modal>
+
+   Behavior:
+     - Renders nothing when Show is false (no leftover overlay).
+     - Closes on overlay click, Escape key, and the header close button.
+     - Locks body scroll while open.
+     - Size: Small (400px) | Default (480px) | Wide (640px) | Full (92vw, 90vh).
+     - Side drawer variant via Size="ModalSize.Drawer" (slides from the right).
+*@
+@namespace Arkana.Gateway.Api.Components
+
+@if (Show)
+{
+    <div class="modal-overlay @(_closing ? "closing" : "open")" tabindex="-1"
+         @onkeydown="OnKeyDown" @onclick="OnOverlayClick" @ref="_overlay">
+        <div class="modal @_sizeClass" role="dialog" aria-modal="true" aria-label="@Title" @onclick:stopPropagation>
+            @if (ShowHeader)
+            {
+                <div class="modal-header">
+                    @if (!string.IsNullOrWhiteSpace(Icon))
+                    {
+                        <span class="modal-header-icon"><Heroicon Name="@Icon" Size="20" /></span>
+                    }
+                    <h2>@Title</h2>
+                    @if (ShowCloseButton)
+                    {
+                        <button class="modal-close" type="button" @onclick="InvokeClose" aria-label="Close">
+                            <Heroicon Name="x-mark" Size="18" />
+                        </button>
+                    }
+                </div>
+            }
+
+            <div class="modal-body">
+                @if (Body is not null)
+                {
+                    @Body
+                }
+                else
+                {
+                    @ChildContent
+                }
+            </div>
+
+            @if (Footer is not null)
+            {
+                <div class="modal-footer">
+                    @Footer
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Show { get; set; }
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string Icon { get; set; } = "";
+    [Parameter] public ModalSize Size { get; set; } = ModalSize.Default;
+    [Parameter] public bool ShowHeader { get; set; } = true;
+    [Parameter] public bool ShowCloseButton { get; set; } = true;
+    [Parameter] public bool CloseOnOverlayClick { get; set; } = true;
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public RenderFragment? Body { get; set; }
+    [Parameter] public RenderFragment? Footer { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private ElementReference _overlay;
+    private bool _closing;
+
+    private string _sizeClass => Size switch
+    {
+        ModalSize.Small => "modal-sm",
+        ModalSize.Wide => "modal-wide",
+        ModalSize.Large => "modal-lg",
+        ModalSize.Full => "modal-full",
+        ModalSize.Drawer => "modal-side",
+        _ => ""
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Show && firstRender)
+        {
+            // Focus the overlay so Escape works immediately, and lock body scroll.
+            try { await _overlay.FocusAsync(); } catch { }
+            await LockScrollAsync(true);
+        }
+        if (!Show && _wasShown)
+        {
+            await LockScrollAsync(false);
+        }
+        _wasShown = Show;
+    }
+
+    private bool _wasShown;
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+            _ = InvokeClose();
+    }
+
+    private void OnOverlayClick()
+    {
+        if (CloseOnOverlayClick)
+            _ = InvokeClose();
+    }
+
+    private async Task InvokeClose()
+    {
+        // Brief closing animation, then notify parent to flip Show=false.
+        _closing = true;
+        StateHasChanged();
+        await Task.Delay(120);
+        _closing = false;
+        await LockScrollAsync(false);
+        await OnClose.InvokeAsync();
+    }
+
+    private async Task LockScrollAsync(bool lockScroll)
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("GatewayModal.lockScroll", lockScroll);
+        }
+        catch { }
+    }
+
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+}

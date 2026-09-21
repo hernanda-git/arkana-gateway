@@ -1,0 +1,7 @@
+@page "/docs/continue"
+@layout PublicDocsLayout
+<PageTitle>Continue · ARKANA GATEWAY</PageTitle>
+<header class="docs-page-header"><div><span class="docs-kicker">Panduan Agent · Continue</span><h1>Continue</h1><p>Tambahkan ARKANA GATEWAY sebagai model OpenAI-compatible pada konfigurasi Continue versi yang terpasang.</p></div><span class="docs-agent-mark"><Heroicon Name="cube" Size="28" /></span></header>
+<section class="docs-prose-section"><h2>Status</h2><p><span class="badge">Conditional</span> Continue memiliki beberapa bentuk config antar versi. Jangan menyalin schema lama tanpa mencocokkan dokumentasi dan schema client yang sedang digunakan.</p></section>
+<section class="docs-prose-section"><h2>Nilai model</h2><div class="docs-definition-list"><div><dt>Provider type</dt><dd>OpenAI-compatible</dd></div><div><dt>Base URL</dt><dd><code>https://gateway.arkana.dev/v1</code></dd></div><div><dt>Model</dt><dd><code>gpt-5.5</code></dd></div><div><dt>API key</dt><dd>Environment atau Secret store Continue</dd></div></div></section>
+<section class="docs-prose-section"><h2>Verification</h2><ol class="docs-list"><li>Reload Continue setelah config berubah.</li><li>Jalankan prompt text dengan marker unik.</li><li>Minta Agent membaca file kecil.</li><li>Minta Agent menulis file proof.</li><li>Readback file secara independen.</li><li>Periksa Gateway Logs.</li></ol></section>

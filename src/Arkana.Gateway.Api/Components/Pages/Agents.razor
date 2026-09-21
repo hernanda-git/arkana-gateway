@@ -1,0 +1,426 @@
+@page "/agent-manager"
+@rendermode InteractiveServer
+@using Arkana.Gateway.Api.Services
+@inject UserTimeService UserTime
+@inject IJSRuntime Js
+
+<PageTitle>Agents</PageTitle>
+
+<div class="section-header">
+    <h2>AI Agents</h2>
+    <div style="display:flex;gap:8px">
+        <button class="btn" @onclick="LoadData" disabled="@loading">
+            @if (loading) { <span>Loading...</span> }
+            else { <span><span class="material-symbols-outlined">refresh</span> Refresh</span> }
+        </button>
+        <button class="btn btn-primary" @onclick="OpenCreate">+ New Agent</button>
+    </div>
+</div>
+
+@if (message is not null)
+{
+    <div style="padding:10px 16px;margin-bottom:12px;background:var(--accent-light);border-radius:var(--radius-sm);font-size:13px;display:flex;align-items:center;gap:8px">
+        <span>@message</span>
+        <button class="btn-icon" @onclick="() => message = null" style="margin-left:auto;flex-shrink:0"><span class="material-symbols-outlined">close</span></button>
+    </div>
+}
+
+@if (agents is null)
+{
+    <div class="empty-state"><div class="icon">⏳</div><p>Loading agents...</p></div>
+}
+else if (agents.Count == 0)
+{
+    <div class="empty-state">
+        <div class="icon"><span class="material-symbols-outlined">smart_toy</span></div>
+        <p>No agents configured.</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:4px">Define an agent with a model, system prompt and parameters, then run it directly from this page.</p>
+    </div>
+}
+else
+{
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr><th>Agent</th><th>Model</th><th>Temp</th><th>Max Tokens</th><th>Tasks</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var a in agents)
+                {
+                    <tr>
+                        <td style="font-weight:500">
+                            @a.Name
+                            @if (!string.IsNullOrWhiteSpace(a.Description))
+                            {
+                                <div style="font-size:12px;color:var(--text-muted);font-weight:400;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@a.Description</div>
+                            }
+                        </td>
+                        <td><span class="mono">@a.ModelCode</span></td>
+                        <td><span class="mono">@a.Temperature.ToString("F2")</span></td>
+                        <td><span class="mono">@a.MaxTokens</span></td>
+                        <td><span class="badge badge-gray">@a.TaskCount</span></td>
+                        <td>
+                            <span class="badge @(a.IsActive ? "badge-green" : "badge-gray")">
+                                <span class="badge-dot @(a.IsActive ? "badge-dot-green" : "badge-dot-gray")"></span>
+                                @(a.IsActive ? "Active" : "Disabled")
+                            </span>
+                        </td>
+                        <td>
+                            <div class="row-actions">
+                                <button class="btn-icon" @onclick="() => OpenRun(a)" title="Run Agent">
+                                    <Heroicon Name="cpu-chip" Size="16" />
+                                </button>
+                                <button class="btn-icon" @onclick="() => OpenTasks(a)" title="Task History">
+                                    <Heroicon Name="bars-3" Size="16" />
+                                </button>
+                                <button class="btn-icon" @onclick="() => OpenEdit(a)" title="Edit">
+                                    <Heroicon Name="pencil-square" Size="16" />
+                                </button>
+                                <label class="toggle">
+                                    <input type="checkbox" checked="@a.IsActive" @onchange="() => Toggle(a.Id)" />
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <button class="btn-icon btn-danger" @onclick="() => DeleteAgent(a.Id, a.Name)" title="Delete">
+                                    <Heroicon Name="trash" Size="16" />
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@* ── Create / Edit Modal ──────────────────────────────── *@
+<Modal Show="@showEditor" Title="@(editId is null ? "New Agent" : $"Edit: {editName}")" Icon="cpu-chip" Size="ModalSize.Wide" OnClose="CloseEditor">
+    <Body>
+        <div class="form-group">
+            <label>Name</label>
+            <input type="text" @bind="editName" @bind:event="oninput" placeholder="e.g. Summarizer" />
+        </div>
+        <div class="form-group">
+            <label>Description</label>
+            <input type="text" @bind="editDescription" placeholder="Short description (optional)" />
+        </div>
+        <div class="form-row">
+            <div class="form-group" style="flex:2">
+                <label>Model</label>
+                <select class="filter-select" @bind="editModelCode">
+                    @if (models is not null)
+                    {
+                        @foreach (var m in models)
+                        {
+                            <option value="@m.Code">@m.Name (@m.ProviderName)</option>
+                        }
+                    }
+                </select>
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Temperature</label>
+                <input type="number" step="0.1" min="0" max="2" @bind="editTemperature" />
+            </div>
+            <div class="form-group" style="flex:1">
+                <label>Max Tokens</label>
+                <input type="number" min="1" @bind="editMaxTokens" />
+            </div>
+        </div>
+        <div class="form-group">
+            <label>System Prompt</label>
+            <textarea @bind="editSystemPrompt" @bind:event="oninput" rows="6" placeholder="You are a helpful assistant..."></textarea>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary)">
+            <input type="checkbox" @bind="editIsActive" /> Active
+        </label>
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseEditor">Cancel</button>
+        <button class="btn btn-primary" @onclick="SubmitEditor" disabled="@(string.IsNullOrWhiteSpace(editName) || string.IsNullOrWhiteSpace(editSystemPrompt) || string.IsNullOrWhiteSpace(editModelCode))">
+            @(editId is null ? "Create" : "Save")
+        </button>
+    </Footer>
+</Modal>
+
+@* ── Run Console Modal ────────────────────────────────── *@
+<Modal Show="@showRun" Title="@($"Run: {runAgentName}")" Icon="play" Size="ModalSize.Wide" OnClose="CloseRun">
+    <Body>
+        <div class="form-group">
+            <label>Input</label>
+            <textarea @bind="runInput" @bind:event="oninput" rows="5" placeholder="Enter the prompt / instruction for this agent..."></textarea>
+        </div>
+        @if (runResult is not null)
+        {
+            <div class="form-group">
+                <label>Result</label>
+                <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;background:var(--bg-subtle);max-height:280px;overflow:auto">
+                    @if (runResult.Status == "Failed" || runResult.Status == "Cancelled")
+                    {
+                        <div class="error-block">
+                            <div class="error-label">@runResult.Status</div>
+                            <pre><code>@(runResult.ErrorMessage ?? "(no detail)")</code></pre>
+                        </div>
+                    }
+                    else
+                    {
+                        <pre style="margin:0;white-space:pre-wrap"><code>@(runResult.Output ?? "(empty)")</code></pre>
+                        <div style="margin-top:8px;font-size:12px;color:var(--text-muted)">
+                            @runResult.Status · @(runResult.TokenUsed?.ToString() ?? "—") tokens · @(runResult.DurationMs?.ToString() ?? "—") ms
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </Body>
+    <Footer>
+        <button class="btn" @onclick="CloseRun">Close</button>
+        <button class="btn btn-primary" @onclick="SubmitRun" disabled="@(running || string.IsNullOrWhiteSpace(runInput))">
+            @(running ? "Running..." : "Run Agent")
+        </button>
+    </Footer>
+</Modal>
+
+@* ── Task History Drawer ──────────────────────────────── *@
+<Modal Show="@showTasks" Title="@($"Task History — {tasksAgentName}")" Icon="bars-3" Size="ModalSize.Drawer" OnClose="CloseTasks">
+    <Body>
+        @if (tasks is null)
+        {
+            <div class="empty-state"><p>Loading tasks...</p></div>
+        }
+        else if (tasks.Count == 0)
+        {
+            <div class="empty-state"><p>No tasks yet for this agent.</p></div>
+        }
+        else
+        {
+            <div class="task-list">
+                @foreach (var t in tasks)
+                {
+                    var statusClass = t.Status switch
+                    {
+                        "Completed" => "badge-green",
+                        "Failed" => "badge-red",
+                        "Cancelled" => "badge-gray",
+                        _ => "badge-amber"
+                    };
+                    <div class="task-card">
+                        <div class="task-card-header">
+                            <span class="badge @statusClass">@t.Status</span>
+                            <span class="mono" style="font-size:11px;color:var(--text-muted)">@t.Id.ToString()[..8]</span>
+                            @if (t.ParentTaskId.HasValue)
+                            {
+                                <Heroicon Name="chevron-right" Size="12" Style="font-size:11px;color:var(--text-muted)" /><span style="font-size:11px;color:var(--text-muted)"> delegated</span>
+                            }
+                        </div>
+                        <div class="task-io">
+                            <div class="task-io-label">Input</div>
+                            <pre class="task-pre">@t.Input</pre>
+                        </div>
+                        @if (!string.IsNullOrEmpty(t.Output))
+                        {
+                            <div class="task-io">
+                                <div class="task-io-label">Output</div>
+                                <pre class="task-pre">@t.Output</pre>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(t.ErrorMessage))
+                        {
+                            <div class="error-block">
+                                <div class="error-label">Error</div>
+                                <pre><code>@t.ErrorMessage</code></pre>
+                            </div>
+                        }
+                        <div class="task-meta">
+                            @if (t.TokenUsed.HasValue) { <span>@t.TokenUsed tokens</span> }
+                            @if (t.DurationMs.HasValue) { <span>@t.DurationMs ms</span> }
+                            <span>@UserTime.Format(t.CreatedAt, "MMM dd, HH:mm")</span>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </Body>
+</Modal>
+
+@* ── Delete Confirmation ──────────────────────────────── *@
+<ConfirmDialog Show="@showDeleteAgent" Title="Delete Agent" Icon="trash"
+               Message="@($"Delete agent '{_deletingAgentName}' and all its tasks? This cannot be undone.")"
+               ConfirmText="Delete" ConfirmClass="btn-danger" OnConfirm="DeleteAgentConfirmed" OnCancel="CloseDeleteAgent" />
+
+@code {
+    private List<DashboardService.AgentView>? agents;
+    private List<DashboardService.ModelView>? models;
+    private bool loading;
+    private string? message;
+
+    // Editor modal
+    private bool showEditor;
+    private Guid? editId;
+    private string editName = "";
+    private string editDescription = "";
+    private string editModelCode = "";
+    private decimal editTemperature = 0.7m;
+    private int editMaxTokens = 4096;
+    private string editSystemPrompt = "";
+    private bool editIsActive = true;
+
+    // Run modal
+    private bool showRun;
+    private Guid runAgentId;
+    private string runAgentName = "";
+    private string runInput = "";
+    private bool running;
+    private DashboardService.AgentTaskView? runResult;
+
+    // Task drawer
+    private bool showTasks;
+    private string tasksAgentName = "";
+    private List<DashboardService.AgentTaskView>? tasks;
+
+    // Delete confirm
+    private bool showDeleteAgent;
+    private Guid deleteAgentId;
+    private string _deletingAgentName = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        loading = true;
+        try
+        {
+            agents = await Svc.GetAgentsAsync();
+            models = await Svc.GetAllModelsAsync();
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    // ── Create / Edit ──────────────────────────────────────
+    private async Task OpenCreate()
+    {
+        showEditor = true;
+        editId = null;
+        editName = "";
+        editDescription = "";
+        editModelCode = models is { Count: > 0 } ? models[0].Code : "";
+        editTemperature = 0.7m;
+        editMaxTokens = 4096;
+        editSystemPrompt = "";
+        editIsActive = true;
+    }
+
+    private void OpenEdit(DashboardService.AgentView a)
+    {
+        showEditor = true;
+        editId = a.Id;
+        editName = a.Name;
+        editDescription = a.Description;
+        editModelCode = a.ModelCode;
+        editTemperature = a.Temperature;
+        editMaxTokens = a.MaxTokens;
+        editSystemPrompt = a.SystemPrompt;
+        editIsActive = a.IsActive;
+    }
+
+    private void CloseEditor() { showEditor = false; }
+
+    private async Task SubmitEditor()
+    {
+        if (string.IsNullOrWhiteSpace(editName) || string.IsNullOrWhiteSpace(editSystemPrompt)) return;
+        if (editId is null)
+        {
+            await Svc.CreateAgentAsync(editName.Trim(), editDescription.Trim(),
+                editSystemPrompt, editModelCode, editMaxTokens, editTemperature);
+            message = "Agent created.";
+        }
+        else
+        {
+            await Svc.UpdateAgentAsync(editId.Value, editName.Trim(), editDescription.Trim(),
+                editSystemPrompt, editModelCode, editMaxTokens, editTemperature, editIsActive);
+            message = "Agent updated.";
+        }
+        showEditor = false;
+        await LoadData();
+    }
+
+    // ── Toggle / Delete ────────────────────────────────────
+    private async Task Toggle(Guid id)
+    {
+        var a = agents?.FirstOrDefault(x => x.Id == id);
+        if (a is null) return;
+        await Svc.UpdateAgentAsync(id, a.Name, a.Description, "", a.ModelCode,
+            a.MaxTokens, a.Temperature, !a.IsActive);
+        await LoadData();
+    }
+
+    private void DeleteAgent(Guid id, string name)
+    {
+        deleteAgentId = id;
+        _deletingAgentName = name;
+        showDeleteAgent = true;
+    }
+
+    private async Task DeleteAgentConfirmed()
+    {
+        await Svc.DeleteAgentAsync(deleteAgentId);
+        showDeleteAgent = false;
+        message = $"Agent \"{_deletingAgentName}\" deleted.";
+        await LoadData();
+    }
+
+    private void CloseDeleteAgent()
+    {
+        showDeleteAgent = false;
+    }
+
+    // ── Run ─────────────────────────────────────────────────
+    private void OpenRun(DashboardService.AgentView a)
+    {
+        showRun = true;
+        runAgentId = a.Id;
+        runAgentName = a.Name;
+        runInput = "";
+        runResult = null;
+        running = false;
+    }
+
+    private void CloseRun() { showRun = false; }
+
+    private async Task SubmitRun()
+    {
+        if (string.IsNullOrWhiteSpace(runInput)) return;
+        running = true;
+        runResult = null;
+        try
+        {
+            runResult = await Svc.RunAgentAsync(runAgentId, runInput.Trim());
+        }
+        catch (Exception ex)
+        {
+            runResult = new DashboardService.AgentTaskView(Guid.Empty, runAgentId, "Failed", runInput, null, ex.Message, null, null, null, null, DateTimeOffset.UtcNow, null);
+        }
+        finally
+        {
+            running = false;
+            await LoadData();
+        }
+    }
+
+    // ── Task History ───────────────────────────────────────
+    private async Task OpenTasks(DashboardService.AgentView a)
+    {
+        showTasks = true;
+        tasksAgentName = a.Name;
+        tasks = null;
+        tasks = await Svc.GetAgentTasksAsync(a.Id);
+    }
+
+    private void CloseTasks() { showTasks = false; }
+
+    [Inject] private DashboardService Svc { get; set; } = default!;
+}

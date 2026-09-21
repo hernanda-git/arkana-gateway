@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Opencode CLI — Native vs Gateway-Routed Architecture</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-card: #161b22;
+    --bg-code: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent-green: #3fb950;
+    --accent-red: #f85149;
+    --accent-yellow: #d29922;
+    --accent-purple: #bc8cff;
+    --accent-cyan: #39d2c0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 15px;
+  }
+
+  /* ── Layout ── */
+  .wrapper { display: flex; max-width: 1400px; margin: 0 auto; min-height: 100vh; }
+  nav {
+    width: 280px;
+    flex-shrink: 0;
+    background: var(--bg-card);
+    border-right: 1px solid var(--border);
+    padding: 24px 16px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+  nav h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    padding-left: 4px;
+  }
+  nav a {
+    display: block;
+    color: var(--text-dim);
+    text-decoration: none;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.8;
+    transition: all 0.15s;
+  }
+  nav a:hover { color: var(--accent); background: rgba(88,166,255,0.08); }
+  nav a.s2 { padding-left: 20px; font-size: 12.5px; }
+  nav a.s3 { padding-left: 32px; font-size: 12px; }
+  nav a.active { color: var(--accent); background: rgba(88,166,255,0.12); }
+
+  main {
+    flex: 1;
+    padding: 40px 48px 80px;
+    max-width: 900px;
+  }
+
+  /* ── Typography ── */
+  h1 { font-size: 28px; font-weight: 600; margin-bottom: 4px; letter-spacing: -0.02em; }
+  h2 {
+    font-size: 22px;
+    font-weight: 600;
+    margin-top: 40px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: -0.01em;
+  }
+  h2:first-of-type { margin-top: 0; }
+  h3 { font-size: 17px; font-weight: 600; margin-top: 28px; margin-bottom: 8px; }
+  h4 { font-size: 15px; font-weight: 600; margin-top: 20px; margin-bottom: 6px; color: var(--text-dim); }
+  p, li { margin-bottom: 8px; }
+  ul, ol { padding-left: 24px; margin-bottom: 12px; }
+  li { margin-bottom: 4px; }
+  strong { color: #fff; }
+  code {
+    background: var(--bg-code);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 13px;
+    color: #f0c674;
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 12px 0 16px;
+    overflow-x: auto;
+    line-height: 1.5;
+    font-size: 13px;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    color: inherit;
+    font-size: inherit;
+  }
+
+  /* ── Meta / Subtitle ── */
+  .meta { color: var(--text-dim); font-size: 14px; margin-bottom: 32px; }
+
+  /* ── Tables ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 14px;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 10px 14px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: var(--bg-card);
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+  }
+  tr:nth-child(even) { background: rgba(255,255,255,0.015); }
+
+  /* ── Badges ── */
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+  .badge-yes { background: rgba(63,185,80,0.15); color: var(--accent-green); }
+  .badge-no  { background: rgba(248,81,73,0.15);  color: var(--accent-red); }
+  .badge-warn { background: rgba(210,153,34,0.15); color: var(--accent-yellow); }
+
+  /* ── Callout Boxes ── */
+  .callout {
+    padding: 14px 18px;
+    border-radius: 8px;
+    margin: 16px 0;
+    border-left: 4px solid;
+    font-size: 14px;
+  }
+  .callout-info    { background: rgba(88,166,255,0.08); border-color: var(--accent); }
+  .callout-warning { background: rgba(210,153,34,0.08); border-color: var(--accent-yellow); }
+  .callout-danger  { background: rgba(248,81,73,0.08);  border-color: var(--accent-red); }
+  .callout-success { background: rgba(63,185,80,0.08);  border-color: var(--accent-green); }
+  .callout strong:first-child { display: block; margin-bottom: 4px; }
+
+  /* ── Blockquotes ── */
+  blockquote {
+    border-left: 3px solid var(--accent-purple);
+    padding: 10px 16px;
+    margin: 12px 0;
+    background: rgba(188,140,255,0.06);
+    border-radius: 0 8px 8px 0;
+    color: var(--text-dim);
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    nav { display: none; }
+    main { padding: 24px 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+<!-- ═══ SIDEBAR ═══ -->
+<nav id="sidebar">
+  <h2>Contents</h2>
+  <a href="#s1" class="s1">1. Native Architecture</a>
+  <a href="#s1-1" class="s2">Overview</a>
+  <a href="#s1-2" class="s2">Components</a>
+  <a href="#s1-3" class="s2">Auth Flow</a>
+  <a href="#s1-4" class="s2">Key Characteristics</a>
+
+  <a href="#s2" class="s1">2. Gateway Architecture</a>
+  <a href="#s2-1" class="s2">Overview</a>
+  <a href="#s2-2" class="s2">Components</a>
+  <a href="#s2-3" class="s2">Auth Flow</a>
+  <a href="#s2-4" class="s2">Key Characteristics</a>
+
+  <a href="#s3" class="s1">3. Request Flow Comparison</a>
+  <a href="#s3-1" class="s2">Simple Chat</a>
+  <a href="#s3-2" class="s2">Tool Call</a>
+  <a href="#s3-3" class="s2">Agent Mode</a>
+
+  <a href="#s4" class="s1">4. What Works &amp; What Doesn't</a>
+  <a href="#s4-1" class="s2">Working</a>
+  <a href="#s4-2" class="s2">Not Working</a>
+  <a href="#s4-3" class="s2">Degraded</a>
+
+  <a href="#s5" class="s1">5. Root Cause Analysis</a>
+  <a href="#s5-1" class="s2">Agent Mode Tool Calls</a>
+  <a href="#s5-2" class="s2">Auth Differences</a>
+  <a href="#s5-3" class="s2">Streaming Bug</a>
+  <a href="#s5-4" class="s2">Code Paths</a>
+
+  <a href="#s6" class="s1">6. Architecture Diagrams</a>
+  <a href="#s6-1" class="s2">Network Topology</a>
+  <a href="#s6-2" class="s2">Middleware Pipeline</a>
+  <a href="#s6-3" class="s2">Streaming Data Flow</a>
+
+  <a href="#s7" class="s1">7. Config Reference</a>
+  <a href="#s8" class="s1">8. Troubleshooting</a>
+</nav>
+
+<!-- ═══ MAIN CONTENT ═══ -->
+<main>
+
+<h1>Opencode CLI — Native vs Gateway-Routed Architecture</h1>
+<p class="meta">
+  <strong>Version:</strong> 1.0 &nbsp;·&nbsp; <strong>Date:</strong> 2026-06-10 &nbsp;·&nbsp;
+  <strong>Scope:</strong> ARKANA GATEWAY Integration with Opencode CLI
+</p>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SECTION 1 -->
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="s1">1. Native Opencode Architecture</h2>
+
+<h3 id="s1-1">1.1 Overview</h3>
+<p>
+  In its native form, the Opencode CLI connects <strong>directly</strong> to Opencode's own API infrastructure at
+  <code>https://opencode.ai/zen/go/v1</code>. The CLI is a TypeScript/Node.js application that uses the
+  <code>@ai-sdk/openai-compatible</code> npm package to communicate with AI model providers.
+</p>
+
+<h3 id="s1-2">1.2 Components</h3>
+<pre><code>┌─────────────────────────────────────────────────────────┐
+│                  User's Machine                          │
+│                                                          │
+│  ┌──────────────┐       ┌──────────────────────────┐    │
+│  │ Opencode CLI  │──────▶│ @ai-sdk/openai-compatible │    │
+│  │ (Node.js TUI) │       │     (HTTP Client)         │    │
+│  └──────────────┘       └──────────┬───────────────┘    │
+│                                     │                    │
+│  ┌──────────────────────────┐       │                    │
+│  │  @opencode-ai/plugin     │       │                    │
+│  │  (oh-my-openagent)       │       │                    │
+│  └──────────────────────────┘       │                    │
+└─────────────────────────────────────┼────────────────────┘
+                                      │
+                                      ▼
+                     ┌───────────────────────────────┐
+                     │     Opencode API               │
+                     │  https://opencode.ai/zen/go/v1 │
+                     │                                 │
+                     │  POST /chat/completions          │
+                     │  GET  /models                    │
+                     └─────────────────────────────────┘
+                                      │
+                         ┌────────────┴────────────┐
+                         ▼                         ▼
+                 ┌──────────────┐         ┌────────────────┐
+                 │ LLM Provider  │         │ Auth Service    │
+                 │ (DeepSeek,    │         │ (API key        │
+                 │  Claude, etc) │         │  validation)    │
+                 └──────────────┘         └────────────────┘
+</code></pre>
+
+<h3 id="s1-3">1.3 Authentication Flow (Native)</h3>
+<ol>
+  <li>Opencode CLI reads provider config from <code>~/.config/opencode/opencode.jsonc</code></li>
+  <li>Config specifies:<br>
+      <code>npm</code>: <code>@ai-sdk/openai-compatible</code><br>
+      <code>baseURL</code>: <code>https://opencode.ai/zen/go/v1</code><br>
+      <code>apiKey</code>: <code>sk-&lt;opencode-key&gt;</code></li>
+  <li>CLI sends HTTP requests with <code>Authorization: Bearer sk-&lt;key&gt;</code></li>
+  <li>Opencode API validates the key and proxies to the actual LLM provider</li>
+</ol>
+
+<h3 id="s1-4">1.4 Key Characteristics (Native)</h3>
+<ul>
+  <li><strong>Single-hop:</strong> CLI → Opencode API → LLM Provider</li>
+  <li><strong>Simple auth:</strong> One API key for all models</li>
+  <li><strong>No observability:</strong> No token tracking, cost logging, or request auditing</li>
+  <li><strong>No gateway features:</strong> No API key management, multi-tenant isolation, or rate limiting</li>
+  <li><strong>CLI-specific tools:</strong> Opencode's agent mode uses built-in tools (<code>execute_command</code>, <code>read_file</code>, <code>edit_file</code>) that run <strong>locally</strong></li>
+</ul>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SECTION 2 -->
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="s2">2. Gateway-Routed Architecture (ARKANA GATEWAY)</h2>
+
+<h3 id="s2-1">2.1 Overview</h3>
+<p>
+  In the gateway-routed scheme, the Opencode CLI points to a <strong>local proxy</strong> — the ARKANA GATEWAY —
+  running on <code>localhost:5011</code>. The gateway authenticates the CLI via its own API key system,
+  then proxies requests upstream to the Opencode API using a <strong>separate</strong> upstream API key.
+</p>
+
+<h3 id="s2-2">2.2 Components</h3>
+<pre><code>┌─────────────────────────────────────────────────────────────────┐
+│                      User's Machine                              │
+│                                                                   │
+│  ┌──────────────┐       ┌──────────────────────────┐            │
+│  │ Opencode CLI  │──────▶│ @ai-sdk/openai-compatible │            │
+│  │ (Node.js TUI) │       │     (HTTP Client)         │            │
+│  └──────────────┘       └──────────┬───────────────┘            │
+│                                     │                             │
+│  ┌──────────────────────────┐       │ HTTP :5011                  │
+│  │  @opencode-ai/plugin     │       │                             │
+│  └──────────────────────────┘       │                             │
+└─────────────────────────────────────┼───────────────────────────┘
+                                      │
+                                      ▼
+             ┌──────────────────────────────────────────────────┐
+             │            ARKANA GATEWAY (Docker)                │
+             │          http://localhost:5011                      │
+             │                                                     │
+             │  ┌──────────────────────────────────────────┐      │
+             │  │  ApiKeyAuthMiddleware                      │      │
+             │  │  - Validates gateway API key               │      │
+             │  │  - Checks DB for hashed key match          │      │
+             │  │  - /admin, /dashboard, /health skip auth   │      │
+             │  └────────────────┬─────────────────────────┘      │
+             │                   │                                 │
+             │  ┌────────────────▼──────────────────────────┐      │
+             │  │  Routing Layer                             │      │
+             │  │  - ChatEndpoints (/v1/chat/completions)    │      │
+             │  │  - ResponsesEndpoints (/v1/responses)      │      │
+             │  │  - Streaming vs Non-streaming paths        │      │
+             │  └────────────────┬─────────────────────────┘      │
+             │                   │                                 │
+             │  ┌────────────────▼──────────────────────────┐      │
+             │  │  TokenTrackingMiddleware                   │      │
+             │  │  - Records usage per-request               │      │
+             │  │  - Logs to PostgreSQL + Redis              │      │
+             │  └──────────────────────────────────────────┘      │
+             │                                                     │
+             │  ┌──────────────────────────────────────────┐      │
+             │  │  Admin Endpoints                          │      │
+             │  │  - CRUD API keys                          │      │
+             │  │  - Manage AI providers + models           │      │
+             │  │  - View usage logs + stats                │      │
+             │  └──────────────────────────────────────────┘      │
+             │                                                     │
+             │  ┌──────────────────────────────────────────┐      │
+             │  │  Blazor Dashboard                        │      │
+             │  │  - Cost charts, active streams           │      │
+             │  │  - Provider status, API key management   │      │
+             │  │  - Request log viewer                    │      │
+             │  └──────────────────────────────────────────┘      │
+             └──────────────────────┬───────────────────────────┘
+                                    │
+                                    ▼
+                   ┌─────────────────────────────────┐
+                   │   Opencode API (Upstream)        │
+                   │   https://opencode.ai/zen/go/v1  │
+                   │   Auth: OPENCODE_GO_API_KEY       │
+                   └────────────────┬────────────────┘
+                                    │
+                                    ▼
+                          ┌──────────────────┐
+                          │  LLM Provider     │
+                          │  (DeepSeek V4     │
+                          │   Flash, etc.)    │
+                          └──────────────────┘
+
+┌──────────────────────────────────────────────────────────┐
+│  Supporting Infrastructure (Docker Compose)               │
+│                                                           │
+│  ┌────────────┐  ┌──────────┐  ┌─────────────────────┐  │
+│  │ PostgreSQL  │  │  Redis   │  │  n8n Workflow Engine│  │
+│  │ :5432       │  │ :6379    │  │ :5678               │  │
+│  └────────────┘  └──────────┘  └─────────────────────┘  │
+└──────────────────────────────────────────────────────────┘
+</code></pre>
+
+<h3 id="s2-3">2.3 Authentication Flow (Gateway)</h3>
+
+<div class="callout callout-info">
+  <strong>📌 Layer 1: Gateway Auth</strong>
+  <ol>
+    <li>Opencode CLI → Gateway <code>:5011/v1/chat/completions</code></li>
+    <li>Header: <code>Authorization: Bearer arkana-&lt;hash64&gt;</code></li>
+    <li><code>ApiKeyAuthMiddleware</code>:<br>
+        a. Hashes the incoming key with SHA256<br>
+        b. Looks up hash in PostgreSQL <code>ApiKeys</code> table<br>
+        c. Validates: exists ∧ isActive ∧ notExpired<br>
+        d. Stores <code>ApiKeyId</code>, <code>ApiKeyName</code> in <code>HttpContext.Items</code></li>
+    <li>If invalid → HTTP 401 <em>"Invalid or expired API key"</em></li>
+  </ol>
+</div>
+
+<div class="callout callout-info">
+  <strong>📌 Layer 2: Upstream Auth</strong>
+  <ol start="5">
+    <li><code>ChatEndpoint</code> reads <code>OPENCODE_GO_API_KEY</code>:<br>
+        - From <code>config["ProviderOptions:OpenCode:ApiKey"]</code> (if not empty)<br>
+        - Fallback: <code>Environment.GetEnvironmentVariable("OPENCODE_GO_API_KEY")</code></li>
+    <li>Gateway → Opencode API with upstream API key</li>
+    <li>If upstream key invalid → HTTP 401 forwarded to CLI</li>
+  </ol>
+</div>
+
+<table>
+  <tr><th>Key Type</th><th>Format</th><th>Layer</th><th>Source</th></tr>
+  <tr><td>Gateway API Key</td><td><code>arkana-&lt;hash64&gt;</code></td><td>Layer 1</td><td><code>POST /admin/api-keys</code> → PostgreSQL</td></tr>
+  <tr><td>Upstream API Key</td><td><code>sk-&lt;openai-format&gt;</code></td><td>Layer 2</td><td><code>OPENCODE_GO_API_KEY</code> env var</td></tr>
+</table>
+
+<h3 id="s2-4">2.4 Key Characteristics (Gateway)</h3>
+<ul>
+  <li><strong>Two-hop:</strong> CLI → Gateway → Opencode API → LLM Provider</li>
+  <li><strong>Dual auth:</strong> Gateway API key (layer 1) + Upstream OpenCode key (layer 2)</li>
+  <li><strong>Full observability:</strong> Token usage tracking, cost calculation, request logging, per-key analytics</li>
+  <li><strong>Admin features:</strong> API key CRUD, provider management, model routing, usage stats</li>
+  <li><strong>Dashboard:</strong> Blazor Server UI for monitoring and configuration</li>
+  <li><strong>Streaming passthrough:</strong> SSE events relayed from upstream through gateway</li>
+  <li><strong>Tool call forwarding:</strong> Tool definitions and <code>tool_choice</code> are forwarded to upstream</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SECTION 3 -->
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="s3">3. Request Flow Comparison</h2>
+
+<h3 id="s3-1">3.1 Simple Chat Request</h3>
+<pre><code>NATIVE:
+  Opencode CLI ──POST /v1/chat/completions──▶ opencode.ai ──▶ LLM
+  Auth: Bearer sk-xxx                          Auth: validate key
+  Body: {model, messages, stream}
+  Response: chat completion or SSE stream
+
+GATEWAY:
+  Opencode CLI ──POST /v1/chat/completions──▶ :5011 Gateway
+  Auth: Bearer arkana-xxx
+  Body: {model, messages, stream}
+       │
+       ▼ Gateway validates gateway API key ✓
+       ▼ Gateway reads OPENCODE_GO_API_KEY
+       ▼ Gateway forwards to opencode.ai with upstream key
+       │
+       opencode.ai ──▶ LLM Provider
+       Response ──▶ Gateway ──▶ Opencode CLI</code></pre>
+
+<h3 id="s3-2">3.2 Tool Call Request</h3>
+<pre><code>NATIVE:
+  Opencode CLI ──POST /v1/chat/completions──▶ opencode.ai
+  Body: {model, messages, tools: [openCodeBuiltInTools]}
+  Response: tool_calls or text
+  │
+  ▼ If tool_calls: CLI executes tool locally
+  ▼ CLI sends tool_result back to model
+  └─▶ Loop until final response
+
+GATEWAY:
+  Opencode CLI ──POST /v1/chat/completions──▶ :5011 Gateway
+  Body: {model, messages, tools: [openCodeBuiltInTools]}
+       │
+       ▼ Gateway forwards with upstream key
+       ▼ opencode.ai ──▶ LLM Provider
+       │
+       Response: <span class="badge badge-no">400 Bad Request</span> ← Issue here
+       │
+       ▼ Gateway returns error to CLI</code></pre>
+
+<h3 id="s3-3">3.3 Agent Mode Flow (Where It Breaks)</h3>
+<pre><code>NATIVE (works):
+  CLI sends tool definitions
+  → opencode.ai accepts them
+  → LLM returns tool_calls
+  → CLI executes command locally
+  → Sends result back
+  → LLM summarizes
+
+GATEWAY (breaks at upstream):
+  CLI sends tool definitions
+  → Gateway forwards
+  → opencode.ai rejects with 400
+  ↓
+  Root cause: Opencode API's deepseek-v4-flash
+  does not recognize the specific tool schema
+  format that Opencode CLI's agent sends</code></pre>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SECTION 4 -->
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="s4">4. What Works &amp; What Doesn't</h2>
+
+<h3 id="s4-1">4.1 <span class="badge badge-yes">✅</span> Working Functionality</h3>
+<table>
+  <tr><th>Feature</th><th>Native</th><th>Gateway</th><th>Notes</th></tr>
+  <tr><td>Basic chat completion</td><td><span class="badge badge-yes">✅</span></td><td><span class="badge badge-yes">✅</span></td><td>Non-streaming and streaming</td></tr>
+  <tr><td>SSE streaming</td><td><span class="badge badge-yes">✅</span></td><td><span class="badge badge-yes">✅</span></td><td>200 from upstream; events relayed correctly</td></tr>
+  <tr><td>Tool definitions in request</td><td><span class="badge badge-yes">✅</span></td><td><span class="badge badge-yes">✅</span></td><td>Gateway forwards tools array faithfully</td></tr>
+  <tr><td>Tool calls in response</td><td><span class="badge badge-yes">✅</span></td><td><span class="badge badge-yes">✅</span></td><td>Model returns <code>tool_calls</code> JSON</td></tr>
+  <tr><td>Tool result cycle</td><td><span class="badge badge-yes">✅</span></td><td><span class="badge badge-yes">✅</span></td><td>Sending <code>tool_result</code> back works</td></tr>
+  <tr><td>Model listing</td><td><span class="badge badge-yes">✅</span></td><td><span class="badge badge-yes">✅</span></td><td>Gateway fetches models from DB</td></tr>
+  <tr><td>Multi-turn conversation</td><td><span class="badge badge-yes">✅</span></td><td><span class="badge badge-yes">✅</span></td><td>Messages forwarded correctly</td></tr>
+  <tr><td>OpenCode CLI simple mode</td><td><span class="badge badge-yes">✅</span></td><td><span class="badge badge-yes">✅</span></td><td><code>opencode run "hi"</code> returns response</td></tr>
+</table>
+
+<h3 id="s4-2">4.2 <span class="badge badge-no">❌</span> Not Working (Gateway Only)</h3>
+<table>
+  <tr><th>Feature</th><th>Native</th><th>Gateway</th><th>Root Cause</th></tr>
+  <tr>
+    <td>OpenCode CLI agent mode with tools</td>
+    <td><span class="badge badge-yes">✅</span></td>
+    <td><span class="badge badge-no">❌</span> 400</td>
+    <td>Opencode API rejects deepseek-v4-flash tool definitions from the agent prompt</td>
+  </tr>
+  <tr>
+    <td><code>execute_command</code> tool</td>
+    <td><span class="badge badge-yes">✅</span></td>
+    <td><span class="badge badge-no">❌</span> 400</td>
+    <td>Same — LLM provider incompatibility</td>
+  </tr>
+  <tr>
+    <td><code>read_file</code> / <code>write_file</code> tools</td>
+    <td><span class="badge badge-yes">✅</span></td>
+    <td><span class="badge badge-no">❌</span> 400</td>
+    <td>Same — LLM provider incompatibility</td>
+  </tr>
+</table>
+
+<h3 id="s4-3">4.3 <span class="badge badge-warn">⚠️</span> Degraded / Different Behavior</h3>
+<table>
+  <tr><th>Aspect</th><th>Native</th><th>Gateway</th><th>Reason</th></tr>
+  <tr><td>Auth model</td><td>Single key</td><td>Dual key</td><td>Gateway adds security layer</td></tr>
+  <tr><td>Latency</td><td>~1-2s</td><td>~1-3s (+200-500ms)</td><td>Gateway adds auth check + logging overhead</td></tr>
+  <tr><td>Observability</td><td>Minimal</td><td>Full (tokens, cost, logs)</td><td>Gateway feature</td></tr>
+  <tr><td>Key management</td><td>Manual</td><td>Admin API + Dashboard</td><td>Gateway feature</td></tr>
+  <tr><td>Multi-tenant isolation</td><td>None</td><td>Per-key model permissions</td><td>Gateway feature</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SECTION 5 -->
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="s5">5. Root Cause Analysis of Differences</h2>
+
+<h3 id="s5-1">5.1 Why Agent Mode Tool Calls Fail</h3>
+<p>The core issue is a <strong>compatibility gap between three layers</strong>:</p>
+
+<pre><code>Opencode CLI Agent
+    │
+    │ Creates tool definitions in its own schema:
+    │   - execute_command: {command: string, ...}
+    │   - read_file: {path: string, ...}
+    │   - edit_file: {path: string, old_string: string, new_string: string}
+    │   - search_files: {pattern: string, ...}
+    │
+    ├──▶ When direct to opencode.ai (NATIVE):
+    │      → Opencode API's model router handles the schema
+    │      → deepseek-v4-flash receives the tool definitions
+    │      → Model returns tool_calls or text
+    │
+    └──▶ When through Arkana Gateway:
+         → Gateway forwards them unchanged to Opencode API
+         → Opencode API's model router: <span class="badge badge-no">400 Bad Request</span>
+         → Why? The request format from the gateway might have
+           subtle differences that the upstream rejects</code></pre>
+
+<div class="callout callout-warning">
+  <strong>⚠️ Hypothesis</strong>
+  The Opencode CLI's agent mode sends tool definitions as part of the <strong>system message</strong>
+  (embedded in the prompt text), not in the <code>tools</code> JSON field. When this reaches the
+  upstream Opencode API, the deepseek-v4-flash model sees function-calling-like instructions in
+  the system prompt but no actual <code>tools</code> array, causing a 400 validation error.
+  <br><br>
+  Alternatively: The <code>deepseek-v4-flash</code> model on OpenCode's infrastructure <strong>does
+  support tool calling</strong>, but the specific schema the CLI uses may differ between the native
+  path and the gateway-forwarded path, triggering a validation error.
+</div>
+
+<h3 id="s5-2">5.2 Auth Architecture Differences</h3>
+<pre><code>NATIVE:
+  CLI apiKey = "sk-xxx" ← Same key for everything
+  → Sent directly to opencode.ai
+
+GATEWAY:
+  CLI apiKey = "arkana-xxx" ← Gateway-level key
+  → Gateway validates against PostgreSQL hashed keys
+  → Gateway then uses OPENCODE_GO_API_KEY for upstream
+  → MUST use the correct fallback logic (null vs empty string)</code></pre>
+
+<h3 id="s5-3">5.3 Why Streaming Failed (Fixed)</h3>
+<div class="callout callout-success">
+  <strong>✅ Critical Bug Fixed</strong> — <code>appsettings.json</code> had <code>"ApiKey": ""</code>
+  (empty string). The <code>??</code> operator only falls through on <strong>null</strong>, not
+  <code>""</code>. This caused the streaming path to never read the
+  <code>OPENCODE_GO_API_KEY</code> env var.
+</div>
+
+<pre><code>Before fix:
+  config["ProviderOptions:OpenCode:ApiKey"] = ""  ← not null!
+  result = "" ?? envVar  → ""  ← wrong!
+  if (!string.IsNullOrEmpty("")) → false
+  → No auth header set → 401 from upstream
+
+After fix (ChatEndpoints.cs):
+  config["ProviderOptions:OpenCode:ApiKey"] = ""
+  if (string.IsNullOrEmpty("")) → true
+  result = envVar = "***"
+  Auth header set → 200 from upstream</code></pre>
+
+<h3 id="s5-4">5.4 Relevant Code Paths</h3>
+<table>
+  <tr><th>File</th><th>Lines</th><th>Purpose</th></tr>
+  <tr><td><code>Program.cs</code></td><td>46-64</td><td>Conditional auth middleware (excludes dashboard paths)</td></tr>
+  <tr><td><code>ApiKeyAuthMiddleware.cs</code></td><td>17-59</td><td>Validates gateway API key against DB</td></tr>
+  <tr><td><code>ChatEndpoints.cs</code></td><td>45-227</td><td>Streaming mode — reads upstream key, proxies SSE</td></tr>
+  <tr><td><code>ChatEndpoints.cs</code></td><td>229-310</td><td>Non-streaming mode — via MediatR/SendChatHandler</td></tr>
+  <tr><td><code>OpenCodeChatService.cs</code></td><td>36-139</td><td>Non-streaming HTTP call to upstream</td></tr>
+  <tr><td><code>DependencyInjection.cs</code></td><td>45-54</td><td>Named HttpClients for "opencode" + "opencode-streaming"</td></tr>
+  <tr><td><code>ApiKeyBootstrapService.cs</code></td><td>25-53</td><td>Seeds <code>OPENCODE_GO_API_KEY</code> into DB on startup</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SECTION 6 -->
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="s6">6. Architecture Diagrams</h2>
+
+<h3 id="s6-1">6.1 Network Topology</h3>
+<pre><code>┌─────────────────────────────────────────────────────────────┐
+│  Docker Network: arkana-net (bridge)                      │
+│                                                              │
+│  ┌──────────────┐      ┌──────────────┐      ┌──────────┐  │
+│  │  PostgreSQL   │◄────▶│   Gateway    │◄────▶│  Redis   │  │
+│  │  :5432        │      │  :5011       │      │  :6379   │  │
+│  └──────────────┘      └──────┬───────┘      └──────────┘  │
+│                               │                              │
+│                      ┌────────▼────────┐                    │
+│                      │      n8n       │                    │
+│                      │     :5678      │                    │
+│                      └─────────────────┘                    │
+└─────────────────────────────────────────────────────────────┘
+                               │
+              Host Network     │ :5011
+          ┌────────────────────┴────────────────────┐
+          │                                         │
+  ┌───────▼────────┐                    ┌──────────▼───────────┐
+  │  Opencode CLI   │                    │  Browser Dashboard   │
+  │  localhost:5011  │                    │  localhost:5011       │
+  └────────────────┘                    └──────────────────────┘</code></pre>
+
+<h3 id="s6-2">6.2 Gateway Internal Middleware Pipeline</h3>
+<pre><code>Request arrives
+       │
+       ▼
+┌──────────────────────┐
+│ Static Files         │  _framework/, _content/, app.css
+│ (Blazor assets)      │
+└──────────────────────┘
+       │
+       ▼
+┌──────────────────────┐
+│ CORS                 │  AllowAnyOrigin
+└──────────────────────┘
+       │
+       ▼
+┌──────────────────────┐
+│ Path Exclusion Check │  if path starts with /dashboard, /health,
+│ (UseWhen condition)  │  /admin, /api-keys, /providers, /_blazor,
+│                      │  /_framework, /_content, /app.css, /, /v1/models
+│                      │  → Skip API key auth middleware
+│                      │  → Otherwise → apply middleware
+└──────────┬───────────┘
+           │
+           ▼ (conditional)
+┌──────────────────────┐
+│ ApiKeyAuthMiddleware │  Hash the key, look up in DB
+│                      │  401 if invalid / inactive / expired
+│                      │  Stores ApiKeyId, ApiKeyName, AllowedModels
+└──────────────────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ TokenTracking        │  Logs request metadata
+│ Middleware           │  (before/after handler execution)
+└──────────────────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ Route Endpoint       │  /v1/chat/completions, /v1/responses,
+│                      │  /admin/..., /dashboard (Blazor)
+└──────────────────────┘</code></pre>
+
+<h3 id="s6-3">6.3 Data Flow: Streaming Request</h3>
+<pre><code>  CLI                    Gateway                         Opencode API
+   │                        │                                │
+   │ POST /v1/chat/completions                               │
+   │ {stream: true, tools}                                   │
+   │ Authorization: arkana-xxx                                 │
+   │────────────────────────▶                                │
+   │                        │                                │
+   │                        │  Auth check (DB)               │
+   │                        │  ✓ Valid gateway key            │
+   │                        │                                │
+   │                        │  Read upstream key:             │
+   │                        │    config ?? env var            │
+   │                        │    → ***                     │
+   │                        │                                │
+   │                        │ POST /chat/completions          │
+   │                        │ {stream: true, tools}           │
+   │                        │ Authorization: Bearer ***    │
+   │                        │───────────────────────────────▶│
+   │                        │                                │
+   │                        │                    200 (✓ if valid)
+   │                        │◀───────────────────────────────│
+   │                        │                                │
+   │  data: {"choices":[]}  │                                │
+   │◀────────────────────────│                                │
+   │  data: [DONE]           │                                │
+   │◀────────────────────────│                                │
+   │                        │  Log usage to PG + Redis       │
+   │                        │                                │</code></pre>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SECTION 7 -->
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="s7">7. Configuration Reference</h2>
+
+<h3>7.1 Opencode CLI Config</h3>
+<p><code>~/.config/opencode/opencode.jsonc</code></p>
+<pre><code>{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["oh-my-openagent"],
+  "model": "arkana-gateway/deepseek-v4-flash",
+  "small_model": "arkana-gateway/deepseek-v4-flash",
+  "provider": {
+    "arkana-gateway": {
+      "npm": "@ai-sdk/openai-compatible",   // Required for custom baseURL
+      "name": "ARKANA GATEWAY",
+      "options": {
+        "baseURL": "http://localhost:5011/v1", // Gateway endpoint
+        "apiKey": "arkana-&lt;hash64&gt;"              // Gateway-level API key
+      },
+      "models": {
+        "deepseek-v4-flash": { "id": "deepseek-v4-flash", ... }
+        // All models must be explicitly listed here
+      }
+    }
+  }
+}</code></pre>
+
+<h3>7.2 Gateway Config</h3>
+<p><code>appsettings.json</code></p>
+<pre><code>{
+  "ProviderOptions": {
+    "OpenCode": {
+      "BaseUrl": "https://opencode.ai/zen/go/v1",
+      "ApiKey": "",                  // ← LEAVE EMPTY (use env var)
+      "DefaultModel": "deepseek-v4-flash"
+    }
+  },
+  "ConnectionStrings": {
+    "Postgres": "Host=postgres;Port=5432;Database=arkana;..."
+  }
+}</code></pre>
+
+<h3>7.3 Docker Compose Environment</h3>
+<pre><code>environment:
+  OPENCODE_GO_API_KEY: ${OPENCODE_GO_API_KEY:?error}
+  ConnectionStrings__Postgres: "Host=postgres;..."</code></pre>
+
+<h3>7.4 <code>.env</code> File</h3>
+<pre><code>OPENCODE_GO_API_KEY=sk-&lt;opencode-api-key&gt;</code></pre>
+
+<h3>7.5 Required npm Packages</h3>
+<pre><code>{
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "^2.0.48",
+    "@opencode-ai/plugin": "1.15.13"
+  }
+}</code></pre>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SECTION 8 -->
+<!-- ═══════════════════════════════════════════════ -->
+<h2 id="s8">8. Troubleshooting Guide</h2>
+
+<h3>8.1 <em>"Invalid or expired API key"</em> (401 from Gateway)</h3>
+<div class="callout callout-danger">
+  <strong>Symptom:</strong> 401 response from <code>localhost:5011</code>
+</div>
+<p><strong>Check:</strong></p>
+<ol>
+  <li>Is the gateway API key valid?
+    <pre><code>curl -s http://localhost:5011/admin/api-keys
+→ Lists keys (call without auth for /admin)</code></pre>
+  </li>
+  <li>Does the key match the config?
+    <pre><code>grep apiKey ~/.config/opencode/opencode.jsonc
+→ Must match the plainTextKey from POST /admin/api-keys</code></pre>
+  </li>
+  <li>Has the key expired or been deactivated? Check <code>expiresAt</code> and <code>isActive</code>.</li>
+</ol>
+<p><strong>Fix:</strong></p>
+<pre><code>curl -X POST http://localhost:5011/admin/api-keys \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-key", "key": "my-secret-key"}'
+→ Use the returned plainTextKey in opencode.jsonc</code></pre>
+
+<h3>8.2 <em>"Response status code does not indicate success: 401"</em> (from upstream)</h3>
+<div class="callout callout-danger">
+  <strong>Symptom:</strong> Gateway forwards request but upstream returns 401
+</div>
+<p><strong>Check:</strong></p>
+<pre><code># Is OPENCODE_GO_API_KEY set correctly?
+docker compose exec gateway printenv OPENCODE_GO_API_KEY
+
+# Is the key valid against opencode.ai directly?
+curl https://opencode.ai/zen/go/v1/chat/completions \
+  -H "Authorization: Bearer *** \
+  -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"hi"}]}'</code></pre>
+<p><strong>Fix:</strong> Update <code>.env</code> with a valid key and restart: <code>docker compose up -d gateway</code></p>
+
+<h3>8.3 <em>"Response status code does not indicate success: 400"</em> (from upstream)</h3>
+<div class="callout callout-warning">
+  <strong>Symptom:</strong> Upstream returns 400, typically during tool/agent mode
+</div>
+<p><strong>Check:</strong></p>
+<ul>
+  <li>Simple chat → should work (tested ✓)</li>
+  <li>Agent mode with tool definitions → may fail</li>
+</ul>
+<p><strong>Workaround:</strong> Use native Opencode connection for agent mode, or use gateway for simple chat.</p>
+
+<h3>8.4 Blazor Dashboard Not Loading (404 on <code>blazor.server.js</code>)</h3>
+<div class="callout callout-warning">
+  <strong>Symptom:</strong> Dashboard URL loads but only navigation works, no interactive components
+</div>
+<p><strong>Cause:</strong> Docker build was skipping static web assets (missing <code>--no-restore</code> removal).</p>
+<p><strong>Fix:</strong> Ensure Dockerfile publish step does NOT include <code>--no-restore</code>.</p>
+
+<h3>8.5 Streaming Returns 401 But Non-Streaming Works</h3>
+<div class="callout callout-success">
+  <strong>Symptom:</strong> Non-streaming requests work, streaming returns 401
+</div>
+<p><strong>Cause:</strong> Empty string in config <code>"ApiKey": ""</code>. <code>??</code> doesn't treat empty string as null.</p>
+<p><strong>Fix (applied in ChatEndpoints.cs):</strong></p>
+<pre><code>// Before:
+var apiKey = config["...ApiKey"] ?? envVar;
+
+// After:
+var apiKey = config["...ApiKey"];
+if (string.IsNullOrEmpty(apiKey))
+    apiKey = Environment.GetEnvironmentVariable("OPENCODE_GO_API_KEY") ?? "";</code></pre>
+
+</main>
+</div>
+
+<script>
+// Highlight active sidebar link on scroll
+const links = document.querySelectorAll('#sidebar a');
+const sections = [];
+links.forEach(a => {
+  const href = a.getAttribute('href');
+  if (href && href.startsWith('#')) {
+    const el = document.getElementById(href.slice(1));
+    if (el) sections.push({ el, link: a });
+  }
+});
+window.addEventListener('scroll', () => {
+  let current = '';
+  sections.forEach(({ el, link }) => {
+    const rect = el.getBoundingClientRect();
+    if (rect.top <= 120) current = link;
+    link.classList.remove('active');
+  });
+  if (current) current.classList.add('active');
+});
+</script>
+</body>
+</html>

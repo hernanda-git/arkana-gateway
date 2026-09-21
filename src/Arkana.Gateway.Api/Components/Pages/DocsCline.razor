@@ -1,0 +1,9 @@
+@page "/docs/cline"
+@layout PublicDocsLayout
+<PageTitle>Cline · ARKANA GATEWAY</PageTitle>
+<header class="docs-page-header"><div><span class="docs-kicker">Panduan Agent · Cline</span><h1>Cline</h1><p>Konfigurasi Cline sebagai Custom OpenAI-compatible Provider. Status integrasi ini conditional sampai Tool event dan artifact diverifikasi pada versi extension yang terpasang.</p></div><span class="docs-agent-mark"><Heroicon Name="command-line" Size="28" /></span></header>
+<section class="docs-prose-section"><h2>Nilai Provider</h2><div class="docs-definition-list"><div><dt>Provider</dt><dd>OpenAI-compatible</dd></div><div><dt>Base URL</dt><dd><code>https://gateway.arkana.dev/v1</code></dd></div><div><dt>Model</dt><dd><code>gpt-5.5</code></dd></div><div><dt>Credential</dt><dd>Secret store Cline atau <code>GATEWAY_API_KEY</code></dd></div></div></section>
+<section class="docs-prose-section"><h2>Setup</h2><ol class="docs-list"><li>Buka Cline Settings dan pilih Custom OpenAI-compatible Provider.</li><li>Masukkan Base URL production.</li><li>Masukkan API key melalui Secret field, bukan di chat.</li><li>Pilih model <code>gpt-5.5</code>.</li><li>Reload extension.</li></ol></section>
+<section class="docs-prose-section"><h2>Verification</h2><pre class="docs-code"><code>curl -fsS https://gateway.arkana.dev/v1/models \
+  -H "Authorization: Bearer YOUR_GATEWAY_API_KEY"</code></pre><p>Lanjutkan dengan text marker, real Tool event yang menulis file, readback artifact, dan pemeriksaan Gateway Logs. Jangan meuseri Cline verified hanya karena model list tampil.</p></section>
+<section class="docs-prose-section"><h2>Batasan</h2><p>Dukungan Responses, Chat Completions, dan Tool bergantung pada versi Cline. Jika hanya Chat Completions tersedia, gunakan jalur itu dan catat hasil Tool-loop secara terpisah.</p></section>
