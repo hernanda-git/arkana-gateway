@@ -4,7 +4,7 @@
 **Gateway:** `https://gateway.arkana.dev` — ARKANA GATEWAY (.NET 10 Blazor Server)
 **Date:** 2026-08-20
 **Researchers:** Hermes Agent (autonomous)
-**Repo investigated (gateway):** `C:/Workspace/gateway` @ `c3cc470` (main)
+**Repo investigated (gateway):** `C:/Workspace/arkana-gateway` @ `c3cc470` (main)
 **Reference repos:**
 - OpenCode `github.com/anomalyco/opencode` @ `e2505d4` (2026-08-19)
 - Hermes Agent `github.com/NousResearch/hermes-agent` @ `ce9d48c` (2026-08-19)
@@ -543,7 +543,7 @@ providers untouched). DB additive-only; if a migration was added, a down-migrati
 
 ## 17. Research Sources
 
-- Gateway repo `C:/Workspace/gateway` @ `c3cc470` (main), files:
+- Gateway repo `C:/Workspace/arkana-gateway` @ `c3cc470` (main), files:
   - `src/Arkana.Infrastructure/OAuth/OAuthFlowService.cs`
   - `src/Arkana.Gateway.Api/Endpoints/OAuthEndpoints.cs`
   - `src/Arkana.Infrastructure/OAuth/OAuthTokenResolver.cs`

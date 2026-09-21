@@ -15,8 +15,8 @@ dotnet test
 # Run a single test project
 dotnet test tests/Arkana.Domain.Tests          # 205 tests
 dotnet test tests/Arkana.Application.Tests     # 78 tests
-dotnet test tests/Arkana.Infrastructure.Tests  # 472 tests
-dotnet test tests/Arkana.Gateway.Api.Tests     # 406 tests
+dotnet test tests/Arkana.Infrastructure.Tests  # 482 tests
+dotnet test tests/Arkana.Gateway.Api.Tests     # 422 tests
 dotnet test tests/Arkana.ServiceDefaults.Tests # 8 tests
 
 # Run a single test class
@@ -144,7 +144,7 @@ dotnet ef migrations remove \
 
 ## Test Counts (regenerate — do not hand-maintain)
 
-- Domain: 205 | Application: 78 | Infrastructure: 472 | Gateway.Api: 406 | ServiceDefaults: 8 (2026-09-21, total 1169)
+- Domain: 205 | Application: 78 | Infrastructure: 482 | Gateway.Api: 422 | ServiceDefaults: 8 (2026-09-21, total 1195)
 - **The total is the merge floor for `main`** — a release that lowers it has dropped coverage.
 
 > Counts are a snapshot; regenerate instead of trusting this section:

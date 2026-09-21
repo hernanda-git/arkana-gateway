@@ -25,17 +25,7 @@ obj/
 ## Node
 node_modules/
 
-## Electron / packaged client build output.
-# tools/antigravity-mitm/arkana-ui/dist/win-unpacked/ contains a COPY of
-# src/server.js, translate.js and cert.js. It is a build artifact that goes
-# stale the moment the real source is edited (verified 2026-08-06: the copy
-# was missing the error-propagation fix that had already landed in src/).
-# Committing it would let a reviewer read the wrong file.
-tools/antigravity-mitm/dist/
-tools/antigravity-mitm/arkana-ui/dist/
 
-## Local client config — contains a live gateway API key.
-tools/antigravity-mitm/arkana-ui/arkana-client.config.json
 
 ## OS
 .DS_Store
@@ -68,9 +58,6 @@ gw_check.dll
 gw_check2.dll
 ui_verify/
 
-# WPF client (Arkana.Client) source — tracked, but build output excluded
-# (bin/ and obj/ above already cover build artifacts)
-# tools/antigravity-mitm/Arkana.Client/
 
 # Local drift-recheck helper
 scripts/drift_recheck.sh

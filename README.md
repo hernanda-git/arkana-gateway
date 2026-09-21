@@ -14,7 +14,7 @@
 [![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=for-the-badge&logo=redis&logoColor=white)](#-tech-stack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-[![Tests](https://img.shields.io/badge/Tests-1190%20passing-success?style=flat-square&logo=checkmarx&logoColor=white)](#-testing)
+[![Tests](https://img.shields.io/badge/Tests-1195%20passing-success?style=flat-square&logo=checkmarx&logoColor=white)](#-testing)
 [![Build](https://img.shields.io/badge/Build-0%20warnings%20·%200%20errors-success?style=flat-square)](#-development)
 [![Maturity](https://img.shields.io/badge/Maturity-8%2F10-yellow?style=flat-square)](#-project-structure)
 [![Phases](https://img.shields.io/badge/Roadmap-6%20phases%20complete-blueviolet?style=flat-square)](#-architecture)
@@ -303,7 +303,7 @@ flowchart LR
 | 5 | **Infrastructure** | Starts Docker Compose (PostgreSQL + Redis + Qdrant) — skipped on native Ubuntu |
 | 6 | **Interactive config** | Prompts for DB credentials, API keys, admin account |
 | 7 | **Database setup** | Creates database, applies EF Core migrations, seeds data |
-| 8 | **Build & verify** | Builds solution, runs the full suite (1173 tests), generates API key, health check |
+| 8 | **Build & verify** | Builds solution, runs the full suite (1195 tests), generates API key, health check |
 
 <details>
 <summary>🖥️ <b>Wizard Preview</b> — click to see it in action</summary>
@@ -617,7 +617,7 @@ psql -U postgres -c "ALTER USER arkana CREATEDB;"
 #### Build & Run
 
 ```powershell
-# From the project root (C:\Workspace\gateway)
+# From the project root (C:\Workspace\arkana-gateway)
 dotnet restore
 dotnet build
 
@@ -632,7 +632,7 @@ dotnet run --project src/Arkana.Gateway.Api
 
 > [!TIP]
 > When running on Windows natively, the gateway binds to `localhost:5011`.
-> **WSL users:** access via `/mnt/c/Workspace/gateway` — but for performance, keep code under WSL's native filesystem (`~/projects/`).
+> **WSL users:** access via `/mnt/c/Workspace/arkana-gateway` — but for performance, keep code under WSL's native filesystem (`~/projects/`).
 
 </details>
 
@@ -989,7 +989,7 @@ dotnet ef migrations add "AddMyNewFeature" \
 ```mermaid
 %%{init: {"pie": {"textPosition": 0.75}, "themeVariables": {"pieOuterStrokeWidth": "2px"}} }%%
 pie showData
-    title 1173 Tests Across 5 Projects
+    title 1195 Tests Across 5 Projects
     "Infrastructure — 476" : 476
     "Gateway.Api — 406" : 406
     "Domain — 205" : 205
@@ -1000,7 +1000,7 @@ pie showData
 </div>
 
 ```bash
-# Run ALL tests (1173 tests, 0 failed — the merge floor for main)
+# Run ALL tests (1195 tests, 0 failed — the merge floor for main)
 dotnet test
 
 # Run with detailed output
@@ -1239,10 +1239,10 @@ ai-gateway/
 │   ├── Arkana.AppHost/              # .NET Aspire orchestration
 │   └── Arkana.ServiceDefaults/      # Shared config (telemetry, health)
 ├── tests/
-│   ├── Arkana.Domain.Tests/         # 191 tests
-│   ├── Arkana.Application.Tests/    # 62 tests
-│   ├── Arkana.Infrastructure.Tests/ # 340 tests
-│   ├── Arkana.Gateway.Api.Tests/    # 204 tests
+│   ├── Arkana.Domain.Tests/         # 205 tests
+│   ├── Arkana.Application.Tests/    # 78 tests
+│   ├── Arkana.Infrastructure.Tests/ # 482 tests
+│   ├── Arkana.Gateway.Api.Tests/    # 422 tests
 │   └── Arkana.ServiceDefaults.Tests/# 8 tests
 ├── deploy/
 │   ├── docker-compose.yml              # Docker Compose (full stack)
@@ -1313,7 +1313,7 @@ MIT — see [LICENSE](LICENSE) for details.
 
 **Built with .NET 10 + Blazor Server by the Arkana Artificial Intelligence team**
 
-*Maturity: ~8/10 · 1173 tests · 6 phases complete · Single-branch (`main`) since Aug 2026 · Last updated: August 2026*
+*Maturity: ~8/10 · 1195 tests · 6 phases complete · Single-branch (`main`) since Aug 2026 · Last updated: September 2026*
 
 [⬆ Back to top](#-arkana-gateway)
 

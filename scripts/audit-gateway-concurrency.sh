@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="${GATEWAY_REPO_ROOT:-C:/Workspace/gateway}"
+ROOT="${GATEWAY_REPO_ROOT:-C:/Workspace/arkana-gateway}"
 COORD_DIR="${GATEWAY_COORD_DIR:-$(dirname "$ROOT")/.gateway-coordination}"
 CLAIM_DIR="$COORD_DIR/claims"
 LEASE_DIR="${GATEWAY_LEASE_DIR:-$HOME/arkana-deploy/.gateway-deploy-lease}"

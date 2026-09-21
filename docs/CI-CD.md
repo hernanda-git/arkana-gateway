@@ -33,7 +33,7 @@ The `ci.yml` workflow exposes these named jobs — the names must match the
 | Job name | Required on `main` | Notes |
 |----------|--------------------|-------|
 | `Build (ubuntu-latest)` | ✅ | Restore + `dotnet build` with `TreatWarningsAsErrors=true` |
-| `Test + Coverage` | ✅ | All 5 test projects; 907 tests must pass |
+| `Test + Coverage` | ✅ | All 5 test projects; 1195 tests must pass |
 | `Coverage Gate` | ✅ | Fails if line coverage < **70%** (configurable via `COVERAGE_THRESHOLD` env) |
 | `Docker Build` | ✅ | Builds the gateway image; pushes to GHCR on `v*` tags |
 

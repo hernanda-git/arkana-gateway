@@ -591,4 +591,4 @@ Rebuild gateway:      cd ~/gateway/deploy && docker compose build gateway && doc
 > **Document version:** 2.1  
 > **Last updated:** 2026-07-19  
 > **Verified with:** OpenCode CLI 1.15.13, Codex CLI (Responses API), Gateway main  
-> **Windows path:** `C:\Workspace\gateway\docs\agent-cli-integration-setup.md`
+> **Windows path:** `C:\Workspace\arkana-gateway\docs\agent-cli-integration-setup.md`

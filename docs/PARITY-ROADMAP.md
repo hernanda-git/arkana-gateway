@@ -166,7 +166,7 @@ This branch is "done" when:
 - [x] All 4 Phase 6 tasks shipped
 - [x] Overall maturity score ~7.5/10 — all 6 phases complete
 - [x] DB-driven pricing advantage preserved and documented
-- [x] 805 tests passing, 0 failures, 0 warnings
+- [x] 805 tests passing at that phase (the suite now stands at 1195), 0 failures, 0 warnings
 - [ ] All 12 assessment sections show gap ≤ 2.0x (except provider coverage, which is structural)
 
 ---

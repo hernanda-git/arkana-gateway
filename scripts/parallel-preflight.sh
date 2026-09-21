@@ -12,7 +12,7 @@ COORD_DIR="${GATEWAY_COORD_DIR:-$(dirname "$ROOT")/.gateway-coordination}"
 fail() { printf 'PREFLIGHT_FAIL: %s\n' "$*" >&2; exit 1; }
 pass() { printf 'PREFLIGHT_PASS: %s\n' "$*"; }
 
-[ "$WORKTREE" != "C:/Workspace/gateway" ] && [ "$WORKTREE" != "/c/Workspace/gateway" ] || fail "protected checkout is not a work lane"
+[ "$WORKTREE" != "C:/Workspace/arkana-gateway" ] && [ "$WORKTREE" != "/c/Workspace/gateway" ] || fail "protected checkout is not a work lane"
 [[ "$BRANCH" =~ ^(feat|fix|docs|chore|refactor|audit|reconcile)/.+-[0-9]{8}(-[0-9]+)?$ ]] || fail "branch is not dated/conventional: ${BRANCH:-detached}"
 git diff --check
 mkdir -p "$COORD_DIR/claims" "$COORD_DIR/locks"

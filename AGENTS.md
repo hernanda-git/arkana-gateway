@@ -3,7 +3,7 @@
 > Rules for EVERY AI agent session (Hermes, Claude Code, Codex, OpenCode, dst)
 > working in this repo. Goal: **parallel multi-session work with zero mutual
 > damage**, all lanes converging into `main`.
-> Companion: `CLAUDE.md` (build/test commands) · `docs/session-context-arkana-gateway-20260826.md` (project primer).
+> Companion: `CLAUDE.md` (build/test commands) · `docs/README.md` (documentation map and freshness labels).
 
 ---
 
@@ -13,7 +13,7 @@
    worktree; never force-push it; never reset it.
 2. **One session = one worktree = one branch.** Never share a working
    directory with another lane.
-3. **The main clone `C:/Workspace/gateway` is a protected area** — its dirty
+3. **The main clone `C:/Workspace/arkana-gateway` is a protected area** — its dirty
    WIP belongs to whoever owns it; other sessions must not stage/commit/
    discard/rebase it.
 4. **Isolation is cheap.** Duplicate full checkouts on disk are FINE and
@@ -50,7 +50,7 @@ Examples: `feat/profile-page-20260826`, `fix/dek-unwrap-20260827-2`.
 Every task starts by creating its own full checkout:
 
 ```bash
-cd C:/Workspace/gateway          # main clone (protected area)
+cd C:/Workspace/arkana-gateway          # main clone (protected area)
 git fetch origin --prune         # ALWAYS fresh base
 git worktree add ../gw-<lane> -b <type>/<topic>-<UTCdate> origin/main
 cd ../gw-<lane>
@@ -64,7 +64,7 @@ cd ../gw-<lane>
   worktree is off-limits: no checkout/reset/stash/clean/branch-delete in it.
 - Remove your own worktree when your lane is merged:
   ```bash
-  cd C:/Workspace/gateway && git worktree remove ../gw-<lane> --force
+  cd C:/Workspace/arkana-gateway && git worktree remove ../gw-<lane> --force
   git branch -D <your-branch>
   ```
   `--force` is allowed ONLY on your own worktree with zero uncommitted files
@@ -118,7 +118,7 @@ After merge: verify `git log origin/main -1` shows your commit, then clean up
 branch pushed and stop.
 
 **Baseline rule:** the test floor is whatever the last green run reported
-(currently ≥1173). If main's suite count DROPPED after your merge, you regressed
+(currently ≥1195). If main's suite count DROPPED after your merge, you regressed
 it — fix or revert immediately.
 
 ## 5. Quality gates (every lane, no exceptions)
@@ -138,8 +138,6 @@ Commit style: conventional (`feat:`/`fix:`/`docs:`/`chore:`), atomic, explicit
 
 | Path | Owner |
 |---|---|
-| `tools/antigravity-mitm/**` dirty files | antigravity client lane |
-| `README.md` (when dirty in main clone) | whichever lane made it dirty |
 | `deploy/**`, `.env*`, secrets | infra/user only |
 | DB writes outside your own test keys | forbidden for all agent lanes |
 

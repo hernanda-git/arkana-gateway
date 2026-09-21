@@ -1369,7 +1369,7 @@ var apiKey = provider?.ApiKey
 | OpenClaude | Chat Completions | `/v1/chat/completions` | ❌ 403/1010 | ✅ |
 | Codex | Responses | `/v1/responses` → Chat Completions | ❌ 403/1010 | ✅ |
 
-See [docs/tool-calls-and-ai-gateway.md](docs/tool-calls-and-ai-gateway.md) for full analysis.
+See [tool-calls-and-ai-gateway.md](tool-calls-and-ai-gateway.md) for full analysis.
 
 ---
 
@@ -1773,7 +1773,7 @@ Custom health endpoint: `GET /health`
 
 **Cause:** opencode.ai's security policy blocks agent-mode tool definitions.
 
-**Fix:** Route to a different upstream provider (OpenAI, Anthropic) that accepts tool definitions. See [docs/tool-calls-and-ai-gateway.md](docs/tool-calls-and-ai-gateway.md).
+**Fix:** Route to a different upstream provider (OpenAI, Anthropic) that accepts tool definitions. See [tool-calls-and-ai-gateway.md](tool-calls-and-ai-gateway.md).
 
 ### 22.5 Codex Desktop "Worked for 0s"
 
@@ -1886,5 +1886,5 @@ Custom health endpoint: `GET /health`
 
 > **Document version:** 1.0  
 > **Author:** Hermes Agent (ARKANA GATEWAY)  
-> **Related docs:** `docs/tool-calls-and-ai-gateway.md`, `docs/architecture/opencode-integration-architecture.md`  
+> **Related docs:** `tool-calls-and-ai-gateway.md`, `architecture/opencode-integration-architecture.md`
 > **Source:** [https://github.com/hernanda-git/arkana-gateway](https://github.com/hernanda-git/arkana-gateway)

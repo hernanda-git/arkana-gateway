@@ -99,4 +99,4 @@ Workflow trigger type is detected at runtime by inspecting the workflow's node t
 
 - [n8n REST API Documentation](https://docs.n8n.io/api/)
 - [n8n Docker Setup](https://docs.n8n.io/hosting/installation/docker/)
-- [Phase 5 — MCP & Webhook](../docs/04-Implementation-Phases/05-Phase-5-MCP-Webhook.md)
+- [Phase 5 — MCP & Webhook](../../04-Implementation-Phases/05-Phase-5-MCP-Webhook.md)

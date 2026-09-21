@@ -1,6 +1,6 @@
 # Deployment & Operations Runbook
 
-> **Current release policy:** For the 2026-09-01 reconciled production lane, use [`release-reconciliation-20260901.md`](release-reconciliation-20260901.md) and [`release-reconciliation-20260901-runbook.md`](release-reconciliation-20260901-runbook.md) as the authoritative release and promotion procedures. The older generic `latest`/`docker compose up` examples below are historical mechanics only; do not use them to promote production.
+> **Release policy:** promote an **immutable image digest** that passed the Release build and the full test suite — never a mutable `latest` tag. The generic `latest` / `docker compose up` examples below are local-development mechanics only; do not use them to promote production.
 
 Canonical guide for deploying the ARKANA GATEWAY to the **gateway-host** server,
 reconciling git branches, keeping commit history clean, and maintaining server
@@ -13,7 +13,7 @@ stack itself). Last verified: 2026-08-26.
 
 | Location | Path | Purpose |
 |---|---|---|
-| **Local dev** | `C:\Workspace\gateway` | All coding, merging, building. Full git history. |
+| **Local dev** | `C:\Workspace\arkana-gateway` | All coding, merging, building. Full git history. |
 | **Server deploy** | `~/AI/Gateway` on gateway-host | Build + run ONLY. No coding on the server. |
 | **Git remote** | `github.com/AI/gateway` | Source of truth. Auth on the Windows host only. |
 
@@ -70,7 +70,7 @@ remote. All feature/fix work follows:
 > commit dates and diff the branch's touched files against main. A branch with
 > unique commits can still be WRONG to merge — check content, not counts.
 > Pre-cleanup backup of every deleted ref:
-> `C:/Workspace/gateway_pre_final_reconcile_20260826.bundle`.
+> `./backups/gateway_pre_final_reconcile_<date>.bundle`.
 
 Map divergence before any merge:
 ```bash
@@ -111,7 +111,7 @@ Transfer the FULL tree as a tarball — never a partial/changed-files-only copy.
 # 1. On local — confirm build green (§4.4), then tar the FULL tree.
 cd /c/Workspace/gateway
 tar --exclude='*/bin' --exclude='*/obj' --exclude='.git' --exclude='node_modules' \
-    --exclude='.hermes' --exclude='tools/antigravity-mitm' -czf /tmp/gw.tar.gz .
+    --exclude='.hermes' -czf /tmp/gw.tar.gz .
 # MUST include: root build files (Arkana.slnx, Dockerfile, NuGet.config, ...),
 # tests/, and src/Arkana.Gateway.Api/wwwroot/** — missing wwwroot = entire UI
 # unstyled while routes still return 200.

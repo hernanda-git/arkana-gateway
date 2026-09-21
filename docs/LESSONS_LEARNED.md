@@ -4,11 +4,11 @@
 
 ## Environment and deployment
 
-- `C:/Workspace/gateway` is a protected dirty main clone. Every agent task uses a new worktree from fresh `origin/main`.
+- Work in an isolated checkout/worktree per task and start from a freshly fetched `origin/main`; parallel lanes must never share a working directory.
 - The production server source tree is git-less. Deploy parity requires a full-tree manifest or exact per-file comparison; an extraction-only overlay can retain deleted files.
 - Deploy only the gateway container. PostgreSQL, Redis, Qdrant, n8n, Ollama, volumes, and deployment `.env` must remain untouched unless an explicitly approved incident requires otherwise.
 - A `docker compose up --build` can reuse stale layers. When source behavior does not change, use the documented no-cache build and verify the container image creation time.
-- Never use `git add -A` in this repository: the main clone has unrelated Antigravity client and UI WIP.
+- Prefer explicit `git add <paths>`. A blanket `git add -A` can drag unrelated in-progress work into a commit when several workstreams share a checkout.
 
 ## Authentication and Blazor
 
@@ -42,16 +42,18 @@
 - Required identity for new commits: `Hernanda <hernanda-git@users.noreply.github.com>` for author and committer.
 - Main publication is fast-forward only after Release build, full suite, whitespace check, and remote-tip read-back.
 
-## Current verified state — 2026-09-01
+## Historical verification snapshot (2026-09-01, HISTORICAL)
 
-- Production gateway is healthy on immutable candidate image `sha256:e5da3b87cb856046579a20b557cd01818014fd0e63fcf69b60fe4c2fc789ca84`.
-- The candidate was reconciled from known-good baseline `cd2d7a1` and is published on `release/gateway-reconcile-20260901`.
-- Full Release validation passed: 0 warnings, 0 errors, 943 passed, 0 failed.
-- Fresh authenticated flow passed: login GET 200, login POST 302, `.Arkana.Auth.v2` issued, authenticated dashboard 200, authenticated Blazor negotiate 200.
-- Gemini admin route returned 200 with admin authentication; no-key `/v1` returned 401; master key was present; no recent DEK unwrap errors were observed.
-- Stable rollback image `sha256:830197679db8550b49e7e27445c24237331267cc6fe86ccecbf3ee0f5d0ed4b7` and a PostgreSQL dump are retained.
-- `deploy-hook.service` is intentionally disabled/inactive because the old hook fails open and lacks release gates. Do not re-enable it until replaced.
-- Complete release record: `docs/release-reconciliation-20260901.md`; operational procedure: `docs/release-reconciliation-20260901-runbook.md`.
+Kept as a record of *what was checked*, not as current behaviour. Regenerate every count and
+re-run the flow against your own deployment before relying on any of it.
+
+- Release gate at the time: 0 warnings, 0 errors, full suite green.
+- Authenticated-flow acceptance used: login GET 200 -> login POST 302 -> auth cookie issued ->
+  authenticated dashboard 200 -> authenticated Blazor negotiate 200.
+- Security boundaries checked: admin route 200 only with admin auth, key-less `/v1` 401, master key
+  present, no envelope-encryption unwrap errors in the logs.
+- A rollback image digest and a database dump were retained before promotion.
+- `deploy-hook.service` was intentionally disabled: the hook failed open and had no release gates.
 
 ## 2026-09-01 reconciliation lessons
 

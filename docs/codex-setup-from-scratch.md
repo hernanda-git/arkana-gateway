@@ -81,7 +81,7 @@ DigiCert `*.arkana.dev` cert is system-trusted, so any client can connect direct
 | Node.js *(Codex only)* | 18+ | `node --version` | https://nodejs.org |
 | Codex CLI | latest | `codex --version` | `npm i -g @openai/codex` |
 
-> Windows users: WSL2 gives the smoothest experience (path: `/mnt/c/Workspace/gateway`).
+> Windows users: WSL2 gives the smoothest experience (path: `/mnt/c/Workspace/arkana-gateway`).
 > Native PowerShell works too — all commands below are POSIX; translate `export` → `$env:` /
 > drop the leading `./` as needed.
 
@@ -354,5 +354,4 @@ dashboard URL and a ready-to-use API key. After it finishes, jump to §9 to wire
 | Model remap | Unknown model names → `deepseek-v4-flash` (avoids upstream 401) |
 | Keep-alive | 10s `: heartbeat` SSE comments during silent upstream thinking |
 
-*This document supersedes the Codex sections of `docs/agent-cli-integration-setup.md`
-and reconciles `docs/codex-gateway-employee-guide.md`.*
+*This document supersedes the Codex sections of [`agent-cli-integration-setup.md`](agent-cli-integration-setup.md).*
